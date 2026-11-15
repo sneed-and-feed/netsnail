@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0.0",
+  "verifier": "Broadcom BCM2712 Cortex-A76 Hardware Cache Verifier (scripts/verify_bcm2712_arena.py)",
+  "timestamp_utc": "2026-11-15T14:23:47Z",
+  "hardware_target": "Broadcom BCM2712 (Raspberry Pi 5)",
+  "cpu_core": "ARM Cortex-A76 (ARMv8.2-A)",
+  "bcm2712_cache_geometry": {
+    "hardware_target": "Broadcom BCM2712 (Raspberry Pi 5)",
+    "cpu_core": "ARM Cortex-A76 (ARMv8.2-A)",
+    "clock_mhz": 2400,
+    "line_size_bytes": 64,
+    "l1d": {
+      "size_bytes": 65536,
+      "size_kb": 64,
+      "ways": 4,
+      "sets": 256,
+      "line_size_bytes": 64,
+      "policy": "Pseudo-LRU / Tree-PLRU (4-way)"
+    },
+    "l2": {
+      "size_bytes": 524288,
+      "size_kb": 512,
+      "ways": 8,
+      "sets": 1024,
+      "line_size_bytes": 64,
+      "policy": "Pseudo-LRU (8-way private per core)"
+    },
+    "l3": {
+      "size_bytes": 2097152,
+      "size_mb": 2.0,
+      "ways": 16,
+      "sets": 2048,
+      "line_size_bytes": 64,
+      "policy": "True LRU / Pseudo-LRU (16-way shared LLd)"
+    }
+  },
+  "arenas": {
+    "netsnail": {
+      "arena_struct": "NetTwinArena",
+      "spoke": "netsnail",
+      "description": "Deterministic 128 Hz Multiplayer Netcode Spoke: 320 KB Sub-Tick 30-Plate Rewind Ring, Morse Jitter Gate, Mutual Occluder Cutoff & Minkowski Reachability PVS",
+      "arena_size_bytes": 1572864,
+      "arena_size_kb": 1536.0,
+      "arena_size_mb": 1.5,
+      "rewind_ring_size_bytes": 327680,
+      "rewind_ring_size_kb": 320.0,
+      "arena_max_ceiling_bytes": 2097152,
+      "arena_alignment_bytes": 64,
+      "partition_offsets": [
+        0,
+        65536,
+        327680,
+        589824,
+        655360,
+        720896,
+        1245184,
+        1507328
+      ],
+      "partition_sizes": [
+        65536,
+        262144,
+        262144,
+        65536,
+        65536,
+        524288,
+        262144,
+        65536
+      ],
+      "l3_ways_occupied_out_of_16": 12,
+      "l2_rewind_ways_occupied_out_of_8": 5,
+      "total_references": 50000000,
+      "simulation_wall_time_sec": 0.633,
+      "throughput_refs_per_sec": 78990414.0,
+      "l1d": {
+        "hits": 36075068,
+        "misses": 13924932,
+        "hit_rate_pct": 72.15
+      },
+      "l2": {
+        "hits": 13725673,
+        "misses": 199259,
+        "hit_rate_pct": 98.569
+      },
+      "l3": {
+        "hits": 194115,
+        "misses": 5144,
+        "capacity_evictions": 0,
+        "hit_rate_pct": 97.418
+      },
+      "lld_miss_rate_pct": 0.01029,
+      "l3_capacity_evictions": 0,
+      "target_lld_miss_rate_pct": 0.1,
+      "target_achieved": true,
+      "allocator_static_audit": {
+        "status": "ZERO_DYNAMIC_ALLOCATIONS_VERIFIED",
+        "dynamic_allocations_detected": 0,
+        "native": {
+          "audited": true,
+          "path": "C:/Users/x/Documents/antigravity/netsnail/target/release/netsnail_rs.dll",
+          "format": "PE32+",
+          "size_bytes": 115712,
+          "imported_dlls": [
+            "KERNEL32.dll",
+            "VCRUNTIME140.dll",
+            "api-ms-win-crt-runtime-l1-1-0.dll"
+          ],
+          "total_imported_symbols": 25,
+          "total_exported_symbols": 26,
+          "heap_allocators_imported": [],
+          "missing_required_exports": [],
+          "passed": true
+        },
+        "wasm32": {
+          "audited": true,
+          "path": "C:/Users/x/Documents/antigravity/netsnail/target/wasm32-unknown-unknown/release/netsnail_rs.wasm",
+          "format": "WASM32",
+          "size_bytes": 99689,
+          "imports": [],
+          "total_imports": 0,
+          "total_exports": 29,
+          "heap_allocators_imported": [],
+          "missing_core_exports": [],
+          "missing_wasm_bridge_exports": [],
+          "passed": true
+        }
+      }
+    }
+  },
+  "summary": {
+    "total_arenas_verified": 1,
+    "total_references_simulated": 50000000,
+    "lld_miss_rate_pct": 0.01029,
+    "l3_capacity_evictions": 0,
+    "target_threshold_pct": 0.1,
+    "all_cache_targets_passed": true,
+    "all_allocator_audits_passed": true,
+    "overall_verification_status": "PASS"
+  }
+}

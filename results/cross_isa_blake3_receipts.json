@@ -1,0 +1,190 @@
+{
+  "schema_version": "1.0.0",
+  "verifier": "NetSnail Cross-ISA BLAKE3 Differential Chaos Fuzzer (netsnail/fuzzer.py)",
+  "timestamp_utc": "2026-11-15T14:23:47Z",
+  "seed_hex": "0xd41c5e4120260101",
+  "arena_size_bytes": 1572864,
+  "num_players": 16,
+  "num_ticks": 10000,
+  "total_player_ticks": 160000,
+  "full_arena_hashed_every_tick": true,
+  "wall_time_sec": 51.1601,
+  "artifacts": {
+    "native_library": "C:/Users/x/Documents/antigravity/netsnail/target/release/netsnail_rs.dll",
+    "wasm32_module": "C:/Users/x/Documents/antigravity/netsnail/target/wasm32-unknown-unknown/release/netsnail_rs.wasm"
+  },
+  "backends": {
+    "x86_64_simd": {
+      "backend": "x86_64_simd",
+      "simd_mode_override": 0,
+      "elapsed_sec": 49.2748,
+      "num_ticks": 10000,
+      "num_players": 16,
+      "player_ticks": 160000,
+      "final_nt_hash_u64": "c60bec6426cb4431",
+      "final_arena_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+      "final_arena_blake2b_256": "d11326e9aeea9a20c4da427bbdccb089bff9e789956ff7c2ea6a29ac843d468b",
+      "rolling_every_tick_arena_blake2b_256": "6868c1b35e10a99a280aebf3f01cf32ea9b08927962c70d1e50a9a512bb141e6",
+      "rolling_every_tick_u64_blake2b_256": "034cdad8d0df16b2feda251730424dcfb6ff8b918a1ef288f46d06788888d711",
+      "trajectory_every_tick_u64_blake3_256": "91997c40be6b0af102523f22b82e2ad7eafbc08e8c5e9b4624993add9b32937d",
+      "milestones": {
+        "1": {
+          "nt_hash_u64": "13622b3b0969d2a7",
+          "arena_blake3_256": "a34c0d35d3896913abd1f0da0349f655cd9989597c9de9b5b8711c780b00c50c",
+          "arena_blake2b_256": "a57314c7a69096b0ecb422f0cff0fcad32a3814202b69aae213da371c7a0e87f"
+        },
+        "2500": {
+          "nt_hash_u64": "c18cdfda4aefc880",
+          "arena_blake3_256": "cdec0b42bbd13d5a246c8ffb12b8e860175c988d4919fc4cc9e607aadcf4ba39",
+          "arena_blake2b_256": "16ee6c188077d14c08790e8ace9c132d98e24283e09a6b64f3231c0d203ed7df"
+        },
+        "5000": {
+          "nt_hash_u64": "31fd519fe21004c0",
+          "arena_blake3_256": "0d3cc8779478d7598d7efca9a122536731e860ca6eabeedc2085fda4bacb931c",
+          "arena_blake2b_256": "7e22b5c9431b3319855d29c95d5515ccd9b800b520f7cc98cf29ac6127ef395e"
+        },
+        "7500": {
+          "nt_hash_u64": "e244da933c260dcb",
+          "arena_blake3_256": "dbe7c91fd075bd380dcadd5050629bfac82c6c71ede5c5101411c91122d9cbf7",
+          "arena_blake2b_256": "40252527cd4c0acf32fdd2d3a480dc700c1e945dcf6a35313589ba147c0d9881"
+        },
+        "10000": {
+          "nt_hash_u64": "c60bec6426cb4431",
+          "arena_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+          "arena_blake2b_256": "d11326e9aeea9a20c4da427bbdccb089bff9e789956ff7c2ea6a29ac843d468b"
+        }
+      },
+      "telemetry": {
+        "server_tick": 10000,
+        "hits_count": 732,
+        "ricochets_count": 7,
+        "penetrations_count": 648,
+        "total_shots_resolved": 20000,
+        "max_cayley_norm_drift": 0.0
+      }
+    },
+    "portable_scalar": {
+      "backend": "portable_scalar",
+      "simd_mode_override": 1,
+      "elapsed_sec": 44.6957,
+      "num_ticks": 10000,
+      "num_players": 16,
+      "player_ticks": 160000,
+      "final_nt_hash_u64": "c60bec6426cb4431",
+      "final_arena_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+      "final_arena_blake2b_256": "d11326e9aeea9a20c4da427bbdccb089bff9e789956ff7c2ea6a29ac843d468b",
+      "rolling_every_tick_arena_blake2b_256": "6868c1b35e10a99a280aebf3f01cf32ea9b08927962c70d1e50a9a512bb141e6",
+      "rolling_every_tick_u64_blake2b_256": "034cdad8d0df16b2feda251730424dcfb6ff8b918a1ef288f46d06788888d711",
+      "trajectory_every_tick_u64_blake3_256": "91997c40be6b0af102523f22b82e2ad7eafbc08e8c5e9b4624993add9b32937d",
+      "milestones": {
+        "1": {
+          "nt_hash_u64": "13622b3b0969d2a7",
+          "arena_blake3_256": "a34c0d35d3896913abd1f0da0349f655cd9989597c9de9b5b8711c780b00c50c",
+          "arena_blake2b_256": "a57314c7a69096b0ecb422f0cff0fcad32a3814202b69aae213da371c7a0e87f"
+        },
+        "2500": {
+          "nt_hash_u64": "c18cdfda4aefc880",
+          "arena_blake3_256": "cdec0b42bbd13d5a246c8ffb12b8e860175c988d4919fc4cc9e607aadcf4ba39",
+          "arena_blake2b_256": "16ee6c188077d14c08790e8ace9c132d98e24283e09a6b64f3231c0d203ed7df"
+        },
+        "5000": {
+          "nt_hash_u64": "31fd519fe21004c0",
+          "arena_blake3_256": "0d3cc8779478d7598d7efca9a122536731e860ca6eabeedc2085fda4bacb931c",
+          "arena_blake2b_256": "7e22b5c9431b3319855d29c95d5515ccd9b800b520f7cc98cf29ac6127ef395e"
+        },
+        "7500": {
+          "nt_hash_u64": "e244da933c260dcb",
+          "arena_blake3_256": "dbe7c91fd075bd380dcadd5050629bfac82c6c71ede5c5101411c91122d9cbf7",
+          "arena_blake2b_256": "40252527cd4c0acf32fdd2d3a480dc700c1e945dcf6a35313589ba147c0d9881"
+        },
+        "10000": {
+          "nt_hash_u64": "c60bec6426cb4431",
+          "arena_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+          "arena_blake2b_256": "d11326e9aeea9a20c4da427bbdccb089bff9e789956ff7c2ea6a29ac843d468b"
+        }
+      },
+      "telemetry": {
+        "server_tick": 10000,
+        "hits_count": 732,
+        "ricochets_count": 7,
+        "penetrations_count": 648,
+        "total_shots_resolved": 20000,
+        "max_cayley_norm_drift": 0.0
+      }
+    },
+    "wasm32": {
+      "backend": "wasm32_unknown_unknown",
+      "runtime": "node (C:\\Program Files\\nodejs\\node.EXE)",
+      "elapsed_sec": 43.5955,
+      "num_ticks": 10000,
+      "num_players": 16,
+      "player_ticks": 160000,
+      "final_nt_hash_u64": "c60bec6426cb4431",
+      "final_arena_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+      "final_arena_blake2b_256": "d11326e9aeea9a20c4da427bbdccb089bff9e789956ff7c2ea6a29ac843d468b",
+      "rolling_every_tick_arena_blake2b_256": "6868c1b35e10a99a280aebf3f01cf32ea9b08927962c70d1e50a9a512bb141e6",
+      "rolling_every_tick_u64_blake2b_256": "034cdad8d0df16b2feda251730424dcfb6ff8b918a1ef288f46d06788888d711",
+      "trajectory_every_tick_u64_blake3_256": "91997c40be6b0af102523f22b82e2ad7eafbc08e8c5e9b4624993add9b32937d",
+      "milestones": {
+        "1": {
+          "nt_hash_u64": "13622b3b0969d2a7",
+          "arena_blake3_256": "a34c0d35d3896913abd1f0da0349f655cd9989597c9de9b5b8711c780b00c50c",
+          "arena_blake2b_256": "a57314c7a69096b0ecb422f0cff0fcad32a3814202b69aae213da371c7a0e87f"
+        },
+        "2500": {
+          "nt_hash_u64": "c18cdfda4aefc880",
+          "arena_blake3_256": "cdec0b42bbd13d5a246c8ffb12b8e860175c988d4919fc4cc9e607aadcf4ba39",
+          "arena_blake2b_256": "16ee6c188077d14c08790e8ace9c132d98e24283e09a6b64f3231c0d203ed7df"
+        },
+        "5000": {
+          "nt_hash_u64": "31fd519fe21004c0",
+          "arena_blake3_256": "0d3cc8779478d7598d7efca9a122536731e860ca6eabeedc2085fda4bacb931c",
+          "arena_blake2b_256": "7e22b5c9431b3319855d29c95d5515ccd9b800b520f7cc98cf29ac6127ef395e"
+        },
+        "7500": {
+          "nt_hash_u64": "e244da933c260dcb",
+          "arena_blake3_256": "dbe7c91fd075bd380dcadd5050629bfac82c6c71ede5c5101411c91122d9cbf7",
+          "arena_blake2b_256": "40252527cd4c0acf32fdd2d3a480dc700c1e945dcf6a35313589ba147c0d9881"
+        },
+        "10000": {
+          "nt_hash_u64": "c60bec6426cb4431",
+          "arena_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+          "arena_blake2b_256": "d11326e9aeea9a20c4da427bbdccb089bff9e789956ff7c2ea6a29ac843d468b"
+        }
+      },
+      "telemetry": {
+        "server_tick": 10000,
+        "hits_count": 732,
+        "ricochets_count": 7,
+        "penetrations_count": 648,
+        "total_shots_resolved": 20000,
+        "max_cayley_norm_drift": 0
+      }
+    }
+  },
+  "parity_summary": {
+    "digest_x86_simd_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+    "digest_scalar_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+    "digest_wasm32_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
+    "rolling_every_tick_arena_blake2b_256": "6868c1b35e10a99a280aebf3f01cf32ea9b08927962c70d1e50a9a512bb141e6",
+    "trajectory_every_tick_u64_blake3_256": "91997c40be6b0af102523f22b82e2ad7eafbc08e8c5e9b4624993add9b32937d",
+    "mismatched_ticks_simd_vs_scalar": 0,
+    "mismatched_ticks_simd_vs_wasm32": 0,
+    "first_divergence_tick": null,
+    "bit_divergence_count": 0,
+    "ulp_divergence": 0,
+    "mxcsr_ftz_resilience": {
+      "mxcsr_hardware_toggle_supported": true,
+      "caller_control_word_preserved": true,
+      "ticks_tested": 512,
+      "players_tested": 8,
+      "player_ticks_tested": 4096,
+      "clean_final_blake3_256": "aeb174a545f0fadc2a29f6b96b0dea969221bd7586701d2730c6537e7e24922f",
+      "hostile_ftz_final_blake3_256": "aeb174a545f0fadc2a29f6b96b0dea969221bd7586701d2730c6537e7e24922f",
+      "tick_digest_mismatches": 0,
+      "zero_ulp_resilient": true
+    },
+    "zero_ulp_cross_isa_verified": true,
+    "status": "PASS"
+  }
+}

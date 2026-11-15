@@ -1,0 +1,111 @@
+name: CI Matrix
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  gfm-math-audit:
+    name: GFM KaTeX Math Compliance (22 Invariant Rules)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run 22-Rule GFM/KaTeX Math Linter
+        run: |
+          python scripts/audit_gfm_math.py README.md docs/ARCHITECTURE.md
+
+  rust-native-and-wasm32:
+    name: Rust #![no_std] Arena (x86_64 + WASM32 + Zero-Alloc)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,wasm32-unknown-unknown
+          components: clippy
+
+      - name: Run Clippy Across Native & WASM32 Targets
+        run: |
+          cargo clippy --release --all-targets -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown --release --lib -- -D warnings
+          RUSTFLAGS="-C target-feature=+simd128" cargo clippy --target wasm32-unknown-unknown --release --lib -- -D warnings
+
+      - name: Run Cargo Release Tests
+        run: |
+          cargo test --release --verbose
+
+      - name: Build Native & WASM32 Release Artifacts
+        run: |
+          cargo build --release
+          cargo build --target wasm32-unknown-unknown --release
+
+      - name: Audit Zero Dynamic Heap Allocator Imports
+        run: |
+          python scripts/verify_zero_alloc.py
+
+  python-ffi-and-pytest:
+    name: Python C-ABI FFI, Cross-ISA Chaos & BCM2712 Cache
+    runs-on: ubuntu-latest
+    needs: [rust-native-and-wasm32]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js (WASM32 Differential Execution)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,wasm32-unknown-unknown
+
+      - name: Build Native Shared Library & WASM32 Module
+        run: |
+          cargo build --release
+          cargo build --target wasm32-unknown-unknown --release
+
+      - name: Install Python Package & Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest numpy
+
+      - name: Run Pytest Verification & Red-Team Suite
+        run: |
+          pytest -v
+
+      - name: Run Broadcom BCM2712 Cache Hierarchy & Zero-Alloc Verifiers
+        run: |
+          python scripts/verify_bcm2712_arena.py
+          python scripts/verify_zero_alloc.py

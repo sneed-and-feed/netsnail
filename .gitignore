@@ -1,0 +1,32 @@
+# Rust build artifacts
+target/
+/target
+**/target/
+
+# Lean 4 / Lake build artifacts
+.lake/
+**/.lake/
+*.olean
+*.ilean
+*.trace
+
+# Python virtual environments & caches
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+**/*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node / OS / Editor scratch
+node_modules/
+.agents/
+.DS_Store
+Thumbs.db

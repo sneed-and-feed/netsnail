@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netsnail"
+version = "0.1.0"
+description = "Deterministic 128 Hz Sub-Tick Multiplayer Netcode, Causal Occluder Rewind & Anti-DMA Minkowski PVS Spoke"
+authors = [{ name = "DarkSnail Research Consortium" }]
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "CC0-1.0" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: System :: Networking",
+]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sneed-and-feed/netsnail"
+Repository = "https://github.com/sneed-and-feed/netsnail"
+
+[project.scripts]
+netsnail = "netsnail.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["netsnail*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

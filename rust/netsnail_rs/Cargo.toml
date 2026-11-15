@@ -1,0 +1,15 @@
+[package]
+name = "netsnail_rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Noah Cohen"]
+description = "Allocation-free #![no_std] deterministic 128 Hz multiplayer causal twin, sub-tick 30-plate rewind, Morse jitter gate, and Minkowski PVS anti-DMA kernel"
+license = "CC0-1.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[features]
+default = []
+std = []
