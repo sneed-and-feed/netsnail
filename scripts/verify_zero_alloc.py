@@ -360,6 +360,9 @@ def parse_wasm_module(content: bytes) -> Dict[str, Any]:
     imports: List[Dict[str, str]] = []
     exports: List[Dict[str, Any]] = []
     sections_seen: List[int] = []
+    target_features: List[str] = []
+    code_section_bytes: int = 0
+    simd128_0xfd_opcode_bytes: int = 0
 
     kind_names = {0x00: "func", 0x01: "table", 0x02: "memory", 0x03: "global", 0x04: "tag"}
 
@@ -372,7 +375,23 @@ def parse_wasm_module(content: bytes) -> Dict[str, Any]:
             raise ValueError(f"Truncated WASM section {sec_id}")
         sections_seen.append(sec_id)
 
-        if sec_id == 2:  # Import Section
+        if sec_id == 0:  # Custom Section (inspect target_features)
+            cur = pos
+            nm_len, cur = _read_uleb128(content, cur)
+            sec_name = content[cur : cur + nm_len].decode("utf-8", errors="replace")
+            cur += nm_len
+            if sec_name == "target_features" and cur < sec_end:
+                feat_count, cur = _read_uleb128(content, cur)
+                for _ in range(feat_count):
+                    if cur >= sec_end:
+                        break
+                    prefix = chr(content[cur])
+                    cur += 1
+                    flen, cur = _read_uleb128(content, cur)
+                    fname = content[cur : cur + flen].decode("utf-8", errors="replace")
+                    cur += flen
+                    target_features.append(f"{prefix}{fname}")
+        elif sec_id == 2:  # Import Section
             cur = pos
             count, cur = _read_uleb128(content, cur)
             for _ in range(count):
@@ -426,6 +445,10 @@ def parse_wasm_module(content: bytes) -> Dict[str, Any]:
                         "index": idx,
                     }
                 )
+        elif sec_id == 10:  # Code Section (count 0xFD v128 SIMD128 prefix opcodes)
+            code_slice = content[pos:sec_end]
+            code_section_bytes += len(code_slice)
+            simd128_0xfd_opcode_bytes += code_slice.count(0xFD)
 
         pos = sec_end
 
@@ -434,6 +457,9 @@ def parse_wasm_module(content: bytes) -> Dict[str, Any]:
         "sections_seen": sections_seen,
         "imports": imports,
         "exports": exports,
+        "target_features": target_features,
+        "code_section_bytes": code_section_bytes,
+        "simd128_0xfd_opcode_bytes": simd128_0xfd_opcode_bytes,
     }
 
 
@@ -533,6 +559,9 @@ def audit_wasm_binary(wasm_path: Path) -> Dict[str, Any]:
     missing_core = [s for s in REQUIRED_NATIVE_EXPORTS if s not in export_names]
     missing_bridge = [s for s in REQUIRED_WASM_BRIDGE_EXPORTS if s not in export_names]
 
+    target_features = parsed.get("target_features", [])
+    simd128_0xfd = int(parsed.get("simd128_0xfd_opcode_bytes", 0))
+
     return {
         "audited": True,
         "path": str(wasm_path).replace("\\", "/"),
@@ -541,6 +570,9 @@ def audit_wasm_binary(wasm_path: Path) -> Dict[str, Any]:
         "imports": imports,
         "total_imports": len(imports),
         "total_exports": len(exports),
+        "target_features": target_features,
+        "simd128_enabled": ("+simd128" in target_features) or (simd128_0xfd > 0),
+        "simd128_0xfd_opcode_bytes": simd128_0xfd,
         "heap_allocators_imported": sorted(set(forbidden_hits)),
         "missing_core_exports": missing_core,
         "missing_wasm_bridge_exports": missing_bridge,

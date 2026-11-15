@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle compiled netsnail_rs.wasm into studio/netsnail_portable_studio.html.
+"""Bundle compiled netsnail_rs.wasm (v0.2.0 +simd128) into studio/netsnail_portable_studio.html.
 
 Encodes target/wasm32-unknown-unknown/release/netsnail_rs.wasm as an inline
 base64 constant (NETSNAIL_WASM_B64) so the 4-pane WebGL2 Tactical Netcode
@@ -47,6 +47,8 @@ def inspect_wasm_binary(wasm_bytes: bytes) -> dict[str, object]:
 
     imports: list[str] = []
     exports: list[str] = []
+    has_simd128_feature = False
+    v128_prefix_bytes = 0
     offset = 8
     n = len(wasm_bytes)
     while offset < n:
@@ -54,7 +56,11 @@ def inspect_wasm_binary(wasm_bytes: bytes) -> dict[str, object]:
         offset += 1
         sec_len, offset = _read_leb128_u32(wasm_bytes, offset)
         sec_end = offset + sec_len
-        if sec_id == 2:  # Import section
+        if sec_id == 0:  # Custom section (check target_features for simd128)
+            sec_slice = wasm_bytes[offset:sec_end]
+            if b"target_features" in sec_slice and b"simd128" in sec_slice:
+                has_simd128_feature = True
+        elif sec_id == 2:  # Import section
             count, p = _read_leb128_u32(wasm_bytes, offset)
             for _ in range(count):
                 mod_len, p = _read_leb128_u32(wasm_bytes, p)
@@ -90,15 +96,19 @@ def inspect_wasm_binary(wasm_bytes: bytes) -> dict[str, object]:
                 p += 1  # export kind
                 _, p = _read_leb128_u32(wasm_bytes, p)  # export index
                 exports.append(name)
+        elif sec_id == 10:  # Code section
+            v128_prefix_bytes = wasm_bytes[offset:sec_end].count(0xFD)
         offset = sec_end
 
-    forbidden = [imp for imp in imports if any(k in imp for k in ("malloc", "calloc", "realloc", "free", "__rust_alloc"))]
-    if forbidden:
-        raise RuntimeError(f"WASM binary contains forbidden allocator imports: {forbidden}")
+    if imports:
+        raise RuntimeError(f"Expected 0 WASM imports in zero-alloc #![no_std] module, found: {imports}")
 
     return {
+        "version": "0.2.0",
         "wasm_size_bytes": len(wasm_bytes),
         "sha256": hashlib.sha256(wasm_bytes).hexdigest(),
+        "simd128": bool(has_simd128_feature or v128_prefix_bytes > 0),
+        "v128_op_bytes": v128_prefix_bytes,
         "imports": imports,
         "exports": exports,
     }
@@ -119,8 +129,11 @@ def bundle_wasm(wasm_path: pathlib.Path, html_path: pathlib.Path) -> dict[str, o
     meta_pattern = re.compile(r"const\s+NETSNAIL_WASM_BUILD_META\s*=\s*\{[^\n]*\};")
     meta_payload = json.dumps(
         {
+            "version": meta["version"],
             "wasm_bytes": meta["wasm_size_bytes"],
             "sha256_prefix": str(meta["sha256"])[:16],
+            "simd128": meta["simd128"],
+            "v128_op_bytes": meta["v128_op_bytes"],
             "export_count": len(meta["exports"]),
             "import_count": len(meta["imports"]),
         },
@@ -157,6 +170,7 @@ def main() -> int:
     meta = bundle_wasm(wasm_path, args.html)
     print(
         f"Bundled {wasm_path.name} ({meta['wasm_size_bytes']} B, sha256={str(meta['sha256'])[:16]}..., "
+        f"simd128={meta['simd128']} [{meta['v128_op_bytes']} 0xFD bytes], "
         f"{len(meta['exports'])} exports, {len(meta['imports'])} imports) -> {args.html}"
     )
     return 0

@@ -2,9 +2,10 @@
 #define NET_TWIN_H
 
 /*
- * net_twin.h — C-ABI Header for NetSnail v0.1 (netsnail_rs)
+ * net_twin.h — C-ABI Header for NetSnail v0.2.0 (netsnail_rs)
  * Deterministic 128 Hz Multiplayer Causal Twin, Sub-Tick 30-Plate Rewind,
- * Morse Jitter Gate, and Minkowski Reachability Anti-DMA Serializer.
+ * Morse Jitter Gate, 1-Bit Voxel DDA + Static BVH, and Minkowski Reachability
+ * Anti-DMA Serializer.
  *
  * Zero dynamic heap allocation (#![no_std]). Exact 1.50 MB (1,572,864 B)
  * 64-byte cache-line aligned static arena.
@@ -52,13 +53,15 @@ extern "C" {
 #define NT_SIZE_TRIAD_CASCADE_SCRATCH       262144u
 #define NT_SIZE_TELEMETRY_AND_HEADER        65536u
 
-/* ClientInputCmd::buttons_stance bitmask flags */
+/* ClientInputCmd::buttons_stance & PlayerPoseSnapshot::stance_flags bitmasks */
 #define NT_BTN_FIRE                    (1u << 0)
 #define NT_BTN_ADS                     (1u << 1)
 #define NT_BTN_CROUCH                  (1u << 2)
 #define NT_BTN_SPRINT                  (1u << 3)
 #define NT_BTN_LEAN_L                  (1u << 4)
 #define NT_BTN_LEAN_R                  (1u << 5)
+#define NT_STANCE_MASK_7BIT            0x007Fu
+#define NT_POSE_HAS_STAMINA            (1u << 7) /* high byte carries stamina_q15 >> 7 */
 
 /* HitRecordOut::outcome_flags bitmask flags */
 #define NT_HIT_FLAG_HIT                        (1u << 0) /* 0x01 */

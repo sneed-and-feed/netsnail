@@ -1,6 +1,6 @@
 # NetSnail Architecture & Mathematical Specification
 
-**NetSnail** (`v0.1.0`) is the deterministic 128 Hz multiplayer netcode, sub-tick multi-plate ballistics rewind, causal occluder cutoff, and anti-DMA observational non-interference spoke of [**Project DarkSnail**](https://github.com/sneed-and-feed/projectdarksnail). It maps the machine-checked algebraic, causal, and memory-layout theorems of [`formalization/NetSnail.lean`](../formalization/NetSnail.lean) onto a zero-allocation `#![no_std]` Rust Quad-SIMD memory arena (`NetTwinArena` in [`rust/netsnail_rs/src/lib.rs`](../rust/netsnail_rs/src/lib.rs)), a stealth C99 ABI header ([`include/net_twin.h`](../include/net_twin.h)), a zero-copy Python `ctypes` FFI and red-team differential harness ([`netsnail/arena.py`](../netsnail/arena.py)), and a standalone single-file 4-pane WebGL2 + live WASM32 tactical netcode workstation ([`studio/netsnail_portable_studio.html`](../studio/netsnail_portable_studio.html)).
+**NetSnail** (`v0.2.0`) is the deterministic 128 Hz multiplayer netcode, sub-tick multi-plate ballistics rewind, 1-bit Amanatides-Woo voxel DDA, causal occluder cutoff, and anti-DMA observational non-interference spoke of [**Project DarkSnail**](https://github.com/sneed-and-feed/projectdarksnail). It maps the machine-checked algebraic, causal, modular delta, and memory-layout theorems of [`formalization/NetSnail.lean`](../formalization/NetSnail.lean) (`421` LOC, `16` theorems across `6` families) onto a zero-allocation `#![no_std]` Rust Quad-SIMD memory arena (`NetTwinArena` in [`rust/netsnail_rs/src/lib.rs`](../rust/netsnail_rs/src/lib.rs)), a stealth C99 ABI header ([`include/net_twin.h`](../include/net_twin.h)), a zero-copy Python `ctypes` FFI and red-team differential harness ([`netsnail/arena.py`](../netsnail/arena.py)), and a standalone single-file 4-pane WebGL2 + live WASM32 `+simd128` tactical netcode workstation ([`studio/netsnail_portable_studio.html`](../studio/netsnail_portable_studio.html)).
 
 ---
 
@@ -19,28 +19,29 @@
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ Layer 1 (Kinematics): Cross-ISA 0-ULP Swept Capsules, Cayley Rotor & Crease Slide    │
+│ Layer 1 (Kinematics): Cross-ISA 0-ULP Swept Capsules, Cayley Rotor & Pure Reconcile  │
 │ - Modular Q15 octant-folded polynomial sin/cos (zero fmod, zero FMA contraction)     │
 │ - Closed-form SO(3) / so(16) Cayley lean & attitude rotor (0.000e+00 norm drift)     │
 │ - 4-plane primal-active collide-and-slide (<v', n> >= 0 + n_1 x n_2 crease slide)    │
-│ - Deterministic 32-tick client prediction replay (nt_client_reconcile < 90 us)       │
+│ - Pure, idempotent 32-tick client replay (nt_client_reconcile: 17.01 us mean < 90us) │
 └────────────────────────────────────┬─────────────────────────────────────────────────┘
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ Layer 2 (Combat): 320 KB L2 Sub-Tick Rewind, 30-Plate Armor & Mutual Occluder Gate   │
+│ Layer 2 (Combat): 320 KB L2 Sub-Tick Rewind, 1-Bit Voxel DDA & Mutual Occluder Gate  │
 │ - Tier-A broadphase cylinders (64 KB) + Tier-B 64 B poses & 30-plate HP (256 KB)     │
-│ - Analytic sub-tick lerp at alpha = fire_subtick_u8 / 256.0 + obliquity ricochet     │
+│ - Amanatides-Woo 1-bit 128x128x16 voxel DDA + shortest-arc yaw_q15 & lean_q15 lerp   │
+│ - <=25m instant CQB + >25m / ricochet swept BallisticProjectiles (0 double-sweep)    │
 │ - Mutual Occluder Horizon Cutoff: rejects behind-cover hits past min(RTT/2, 8 ticks) │
 └────────────────────────────────────┬─────────────────────────────────────────────────┘
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ Layers 4 & 5 (Egress): Minkowski Reachability PVS, Anonymous Audio & <1200 B Delta   │
+│ Layers 4 & 5 (Egress): Minkowski PVS, Anonymous Audio & 2-Tier ZMod Delta Bitpacker  │
 │ - Reachability ball R_j(dt) = v_max * (0.5 * RTT_i + tau_margin) vs voxel frustum    │
 │ - Strict observational non-interference: 0 leaked bits for occluded out-of-cone foes │
 │ - 12-byte AcousticImpulse portal diffraction (zero entity_id, zero xyz coordinates)  │
-│ - Per-observer acked baseline XOR/quantized bitpacker strictly within < 1200 B MTU   │
+│ - 2-tier ZMod baseline delta records (12 B / 14 B; 64p + 8ac worst = 1,008 B <=1200) │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,7 +55,8 @@
 | **Behind-Wall Death Elimination** | Causal Mutual Occluder Horizon Cutoff | `mutual_occluder_cutoff_eliminates_behind_wall_hits`: once target hard-cover occlusion exceeds $\tau_{\mathrm{fair}} = \min(\mathrm{RTT}/2, 8\text{ ticks})$, backward hit admissibility collapses identically to `False`. |
 | **Anti-DMA Wallhack & Radar Immunity** | Two-Sided Minkowski Reachability PVS | `minkowski_pvs_zero_pop_in` & `anti_dma_observational_noninterference`: pre-delivers actors before doorway peek ($0$ pop-in frames) while guaranteeing byte-identical UDP payloads under arbitrary state mutations of occluded out-of-cone enemies ($0$ leaked bits). |
 | **Swept-Capsule Wall Slide & Lean Attitude** | Unilateral Contact Sheaf Coboundary & Rank-2 Cayley Rotor | $\mathrm{SO}(3)$ Cayley attitude/lean update preserves Euclidean norm (`0.000e+00` drift); primal-active normal projection and $\hat n_1 \times \hat n_2$ crease slide prevent wall tunneling. |
-| **Cross-ISA Replay Lockstep (`0-ULP`)** | Non-Contracted Pairwise SIMD Trees & Modular `Q15` Polynomials | Identical canonical state digests across `x86_64 AVX2`, portable `Scalar`, and `WASM32` with `MXCSR` (`FTZ=0, DAZ=0, RN`) sanitization at C-ABI entry. |
+| **Modular Delta Chains & 30-Plate Armor** | `ZMod M` Telescoping Group & Monotone Saturating Lattice | `modular_delta_chain_exact_reconstruction` & `multi_plate_durability_monotone_bounded`: multi-hop `0x80`/`0xC0` deltas reconstruct quantized pose, yaw, and `lean_q8` with `0` drift; ballistic plate hits monotonically degrade struck zones within `[0, 255]`. |
+| **Cross-ISA Replay Lockstep (`0-ULP`)** | Non-Contracted Pairwise SIMD Trees & Modular `Q15` Polynomials | Identical canonical state digests across `x86_64 AVX2`, `AArch64 NEON`, portable `Scalar`, and `WASM32 +simd128` (`v128`) with per-arena SIMD isolation and `MXCSR` (`FTZ=0, DAZ=0, RN`) sanitization at C-ABI entry. |
 
 ---
 
@@ -66,19 +68,19 @@ To guarantee deterministic Worst-Case Execution Time (WCET) with zero heap fragm
 | :---: | :--- | :---: | :---: | :--- |
 | `0` | `tier_a_cylinders` | `0` | `65,536 B` | `64 ticks * 64 players * 16 B` swept broadphase cylinders `[x, y, z_base, rad_height]` (`64 KB`, L1d/L2 hot). |
 | `1` | `tier_b_poses_plates` | `65,536` | `262,144 B` | `64 ticks * 64 players * 64 B` (`align(64)` `PlayerTickState`): root $\mathrm{SE}(3)$ pose/velocity, `q15` Cayley lean rotor, 30-zone armor HP & material bitfields (`Tier A + Tier B = 327,680 B = 320 KB` private L2 rewind ring). |
-| `2` | `static_voxel_bvh` | `327,680` | `262,144 B` | `128 * 128 * 16` 1-bit hard-cover voxel/portal occupancy grid (`32,768 B`) + static AABB brush/portal BVH (`229,376 B`). |
+| `2` | `static_voxel_bvh` | `327,680` | `262,144 B` | `128 * 128 * 16` 1-bit hard-cover Amanatides-Woo voxel DDA occupancy grid (`32,768 B`) + static AABB brush/portal BVH (`229,376 B`). |
 | `3` | `client_jitter_gates` | `589,824` | `65,536 B` | `64` players 3-point discrete Morse arrival-jitter states, $\mathcal H_{\mathrm{clock}}$ `clumsy` throttle quarantine counters, and `ack_mask_u64` baseline rings. |
-| `4` | `projectiles_acoustic_slab` | `655,360` | `65,536 B` | `256` finite-velocity ballistic projectiles (`256 * 64 B = 16,384 B`) + server-side portal acoustic diffraction emitters and scratch (`49,152 B`). |
-| `5` | `client_baseline_snapshots` | `720,896` | `524,288 B` | Per-observer acknowledged delta-compression baseline ring and Minkowski reachability PVS visibility bitmasks (`512 KB`). |
+| `4` | `projectiles_acoustic_slab` | `655,360` | `65,536 B` | `256` finite-velocity ballistic projectiles (`256 * 64 B = 16,384 B`, spawned at `25.0 m` handoff or shallow ricochet) + server-side portal acoustic diffraction emitters (`49,152 B`). |
+| `5` | `client_baseline_snapshots` | `720,896` | `524,288 B` | Per-observer acknowledged 18-byte `QuantizedEntityState` baseline ring (`[f32; 8] = 32 B` slots) and Minkowski reachability PVS visibility bitmasks (`512 KB`). |
 | `6` | `triad_cascade_scratch` | `1,245,184` | `262,144 B` | Skew-symmetric $\mathfrak{so}(16)$ tie-breaker tensors, Cayley rotor scratch, `q15` polynomial constants, and 4-plane collide-and-slide workspace (`256 KB`). |
-| `7` | `telemetry_and_header` | `1,507,328` | `65,536 B` | `server_tick: u32`, `active_player_mask: u64`, `simd_mode_override: u32`, canonical 64-bit state digest, telemetry counters, and `align(64)` tail padding to `1,572,864 B`. |
+| `7` | `telemetry_and_header` | `1,507,328` | `65,536 B` | `server_tick: u32`, `active_player_mask: u64`, per-arena `simd_mode_override: u32`, canonical 64-bit state digest, telemetry counters, and `align(64)` tail padding to `1,572,864 B`. |
 | **Total** | **`NetTwinArena`** | **`0 .. 1,572,864`** | **`1,572,864 B`** | **`1.50 MB` (`75.0%` of `2.0 MB` BCM2712 L3 SRAM; `0` dynamic heap allocations).** |
 
 ---
 
 ## 4. Frozen C-ABI Wire & Telemetry Structures (`include/net_twin.h`)
 
-All wire-facing and FFI structures enforce `#[repr(C)]` layout with zero implicit compiler padding:
+All wire-facing and FFI structures enforce `#[repr(C)]` layout with zero implicit compiler padding (`v0.2.0` preserves byte-exact backward compatibility with `v0.1.0`):
 
 1. **`ClientInputCmd` (`16 B`)**:
    - `cmd_tick: u32` (bytes `0..4`): Client command tick index.
@@ -92,7 +94,7 @@ All wire-facing and FFI structures enforce `#[repr(C)]` layout with zero implici
 3. **`AcousticImpulse` (`12 B`)**:
    - `arrival_tick: u32` (`0..4`), `azimuth_q12: i16` (`4..6`), `elevation_q12: i16` (`6..8`), `band_energy_q8: [u8; 4]` (`8..12`). Contains **zero `entity_id`** and **zero world `(x, y, z)` coordinates**, neutralizing packet-sniffing acoustic ESP radars.
 4. **`PlayerPoseSnapshot` (`32 B`)**:
-   - `x: f32`, `y: f32`, `z: f32`, `vx: f32`, `vy: f32`, `vz: f32`, `yaw_q15: i16`, `pitch_q15: i16`, `lean_q15: i16`, `stance_flags: u16`.
+   - `x: f32`, `y: f32`, `z: f32`, `vx: f32`, `vy: f32`, `vz: f32`, `yaw_q15: i16`, `pitch_q15: i16`, `lean_q15: i16`, `stance_flags: u16` (bits `0..6` = `NT_STANCE_MASK_7BIT`; bit `7` = `NT_POSE_HAS_STAMINA`; bits `8..15` = `(stamina_q15 >> 7) as u8` for exact `0`-stamina sprint-exhaustion reconciliation, with clean fallback for legacy `stance_flags < 128` callers).
 
 ---
 
@@ -113,12 +115,12 @@ Historical poses and acknowledged snapshot baselines are indexed into 64-slot ri
 
 ### 5.2 Cross-ISA `0-ULP` Kinematics, Cayley Attitude Rotors & Collide-and-Slide (Theorem Family 4)
 
-To prevent cumulative floating-point divergence between an `x86_64` AVX2 server, an ARM64 NEON edge host, and a browser `WASM32` client during 32-tick prediction replay (`nt_client_reconcile`), NetSnail bans hardware FMA contraction and transcendental `libm` calls:
+To prevent cumulative floating-point divergence between an `x86_64` AVX2 server, an ARM64 NEON edge host, and a browser `WASM32 +simd128` client during pure 32-tick prediction replay (`nt_client_reconcile`), NetSnail bans hardware FMA contraction and transcendental `libm` calls:
 
-1. **Modular `Q15` Octant-Folded Polynomial Trigonometry**:
-   View angles `phase_q15` in `i16` map directly to unsigned modular phase $u = \mathrm{phase} \mathbin{\&} \mathrm{0xFFFF} \in [0, 65535]$, folding exact octant symmetries onto $[0, \pi/4]$ and evaluating an `f64` Horner minimax polynomial before a single IEEE-754 round-to-nearest-even conversion to `f32` (canonicalizing `-0.0f` to `+0.0f` and any `NaN` bit-pattern to `0x7fc0_0000`).
+1. **Modular `Q15` Octant-Folded Polynomial Trigonometry & Shortest-Arc Yaw Lerp**:
+   View angles `phase_q15` in `i16` map directly to unsigned modular phase $u = \mathrm{phase} \mathbin{\&} \mathrm{0xFFFF} \in [0, 65535]$, folding exact octant symmetries onto $[0, \pi/4]$ and evaluating an `f64` Horner minimax polynomial before a single IEEE-754 round-to-nearest-even conversion to `f32` (canonicalizing `-0.0f` to `+0.0f` and any `NaN` bit-pattern to `0x7fc0_0000`). Sub-tick `alpha` ballistics interpolate victim `yaw_q15` along the shortest signed `i16` modular arc across the $\pm\pi$ wraparound seam alongside linear `lean_q15` interpolation.
 2. **Pairwise Non-Contracted SIMD Reductions & `MXCSR` Hygiene**:
-   All 16-wide dot products (`nt_dot16_pairwise_f32`) evaluate the fixed balanced binary tree:
+   All 16-wide dot products (`nt_dot16_pairwise_f32`) evaluate the fixed balanced binary tree across `x86_64 AVX2`, `aarch64 NEON`, `wasm32 v128` (`+simd128`), and `Scalar`:
 
 ```math
 \mathrm{dot16}(\mathbf a, \mathbf b) = \Bigl(\bigl((p_0 + p_1) + (p_2 + p_3)\bigr) + \bigl((p_4 + p_5) + (p_6 + p_7)\bigr)\Bigr) + \Bigl(\bigl((p_8 + p_9) + (p_{10} + p_{11})\bigr) + \bigl((p_{12} + p_{13}) + (p_{14} + p_{15})\bigr)\Bigr)
@@ -193,8 +195,8 @@ V_i\left(\mathbf x_j(t_0)\right) \iff \exists \mathbf x \in \mathcal F_i,\; \mat
 ```
 
 Theorem Family 3 proves both sides of the security-playability boundary:
-- **Zero Doorway Pop-In (`minkowski_pvs_zero_pop_in`)**: For any kinematically admissible trajectory satisfying $\mathrm{dist}(\mathbf x_j(t), \mathbf x_j(t_0)) \le v_{\max}(t - t_0)$ over `t in [t_0, t_0 + dt_i]`, if `x_j(t)` enters frustum `F_i` at any moment during the transit window, then `vis_i(x_j(t_0))` already holds at `t_0` — guaranteeing the server streams actor `j`'s state before they clear the doorway edge.
-- **Strict Observational Non-Interference (`anti_dma_observational_noninterference`)**: For any two raid states $s_1, s_2$ whose visible actor sets coincide (`{ j | vis_i(s1.pos j) } = { j | vis_i(s2.pos j) }`) and whose states agree on every visible actor `j`, the serialized UDP datagrams satisfy:
+- **Zero Doorway Pop-In (`minkowski_pvs_zero_pop_in`, `two_sided_minkowski_pvs_zero_pop_in`)**: For any kinematically admissible trajectory satisfying $\mathrm{dist}(\mathbf x_j(t), \mathbf x_j(t_0)) \le v_{\max}(t - t_0)$ over `t in [t_0, t_0 + dt_i]`, if `x_j(t)` enters frustum `F_i` (or meets a moving observer frustum at combined speed `v_obs + v_enemy`) during the transit window, then `vis_i(x_j(t_0))` already holds at `t_0` — guaranteeing the server streams actor `j`'s state before they clear the doorway edge.
+- **Strict Observational Non-Interference (`anti_dma_observational_noninterference`, `anti_dma_occluded_mutation_zero_leak`)**: For any two raid states $s_1, s_2$ whose visible actor sets coincide (`{ j | vis_i(s1.pos j) } = { j | vis_i(s2.pos j) }`) and whose states agree on every visible actor `j`, the serialized UDP datagrams satisfy:
 
 ```math
 \mathrm{packDatagram}(i, s_1) = \mathrm{packDatagram}(i, s_2)
@@ -202,65 +204,78 @@ Theorem Family 3 proves both sides of the security-playability boundary:
 
   identically bit-for-bit. Arbitrary mutations to positions, velocities, 30-plate armor HP, or inventory of occluded out-of-cone actors leak **zero bits** into `out_mtu_buf` or Client $i$'s RAM. Audible occluded footsteps and gunfire traverse portal graphs purely as 12-byte `AcousticImpulse` diffraction records carrying quantized `(arrival_tick, azimuth_q12, elevation_q12, band_energy_q8)` with zero entity identifiers and zero world coordinates.
 
-### 5.5 Machine-Checked Theorem Index (`formalization/NetSnail.lean`)
+### 5.5 Modular Baseline-Delta Telescoping & 30-Plate Durability Monotonicity (Theorem Family 6)
 
-All 14 theorems (`879` lines, toolchain `leanprover/lean4:v4.34.0-rc2`) compile with `0` errors, `0` warnings, `0` `sorry`, and `0` custom axioms:
+In `v0.2.0`, `replication.rs` stores all 18 bytes of `QuantizedEntityState` into `client_baseline_snapshots` and encodes compact 2-tier modular delta records (`12 B` `0x80 | pid` short delta and `14 B` `0xC0 | pid` wide delta) packing `dvx, dvy, dvz`, `dyaw, dpitch`, `dlean_q8` (`wrapping_sub` / `wrapping_add`), and 7-bit stance (`16 + 64 * 14 + 8 * 12 = 1,008 B <= 1,200 B` MTU):
+
+```math
+\mathrm{decodeDeltaChain}\bigl(b_0,\, \mathrm{encodeDeltaChain}(b_0, [b_1, \dots, b_k, c])\bigr) = b_0 + \sum_{m=1}^{k}\left(b_m - b_{m-1}\right) + \left(c - b_k\right) = c
+```
+
+1. **`modular_delta_chain_exact_reconstruction`**: Over arbitrary `ZMod M` as well as fixed-width `UInt8` (`lean_q8`) and `UInt16` (`qx, qy, qz, yaw_q15`), both single-step `base + (cur - base) = cur` and arbitrary multi-hop `List` baseline-delta chains reconstruct `cur` with **zero drift** even across unacknowledged intermediate packet drops.
+2. **`multi_plate_durability_monotone_bounded`**: Across 30 anatomical armor plate zones `plates : Fin 30 -> Nat` initialized within `[0, 255]`, saturating ballistic degradation `stepPlateDamage plates zone dmg` (applied to instantaneous `<= 25.0 m` CQB hits and swept `> 25.0 m` / shallow-ricochet `BallisticProjectile` impacts) satisfies per-zone monotonicity (`plates' z <= plates z`), leaves unstruck zones `z != zone` unchanged, and preserves `<= 255` across any `List` of impacts.
+
+### 5.6 Machine-Checked Theorem Index (`formalization/NetSnail.lean`)
+
+All 16 theorems (`421` lines, toolchain `leanprover/lean4:v4.34.0-rc2`) compile with `0` errors, `0` warnings, `0` `sorry`, and `0` custom axioms:
 
 | Theorem Family | Formal Symbol (`NetSnail.*`) | Line Range | Machine-Checked Guarantee |
 | :---: | :--- | :---: | :--- |
-| `1a` | `circular_tick_window_antisymmetric` | `L144–L167` | RFC-1982 32-bit half-space tick ordering is irreflexive, strictly antisymmetric, and complete on non-antipodal distinct ticks across $2^{32}$ wraparound. |
-| `1b` | `ring64_window_injective` | `L173–L204` | Distinct ticks in the active 64-tick (`500 ms`) window map to strictly distinct ring slots `0..63` across $2^{32}$ wraparound. |
-| `1c` | `ack_mask_u64_baseline_in_ring` | `L213–L240` | Every acknowledged bit $b < 64$ in `ack_mask_u64` within active window age resolves to an un-overwritten server baseline ring slot. |
-| `2a` | `morse_jitter_spike_characterization` | `L262–L292` | Isolated packet-clumping bursts trigger $I_{\mathrm{Morse}} = \delta^2 > 0$, while constant ping and linear clock drift satisfy `I_Morse = -alpha^2 <= 0`. |
-| `2b` | `lag_switch_rewind_non_amplification` | `L301–L324` | Positive arrival-jitter spikes monotonically contract (never widen) effective backward rewind credit `wEff`. |
-| `2c` | `mutual_occluder_cutoff_eliminates_behind_wall_hits` | `L357–L400` | Once target hard-cover occlusion exceeds $\tau_{\mathrm{fair}}$, all clamped rewind ticks and sub-tick interpolations remain inside `Shadow` (`hitAdmissible = False`). |
-| `3a` | `minkowski_pvs_zero_pop_in` & `two_sided_minkowski_pvs_zero_pop_in` | `L426–L469` | Any enemy trajectory entering observer frustum within `dt = rtt_half + tau_margin` already satisfies `visMinkowski` at dispatch time `t0` (`0` pop-in frames). |
-| `3b` | `anti_dma_observational_noninterference` & `anti_dma_occluded_mutation_zero_leak` | `L504–L561` | Raid states agreeing on visible actors emit bit-identical `packDatagram` bytes; mutating occluded out-of-cone enemies leaks `0` bits. |
-| `4a` | `cayley_so3_attitude_orthogonality_and_norm_conservation` | `L631–L686` | Rational $\mathfrak{so}(3)$ Cayley rotor solves `R(w)^T R(w) = I_3` and preserves Euclidean norm $\lVert R\mathbf v \rVert_2^2 = \lVert \mathbf v \rVert_2^2$. |
-| `4b` | `swept_capsule_collide_and_slide_non_penetration` | `L720–L759` | Unilateral wall projection enforces $\langle \mathbf v', \hat n \rangle \ge 0$, preserves tangential slide, and prevents wall-boost (`||v'||^2 <= ||v||^2`). |
-| `4c` | `two_plane_crease_projection_orthogonal` | `L767–L810` | Two-plane corner crease slide along `n_1 x n_2` satisfies $\langle \mathbf v_{\mathrm{crease}}, \hat n_1 \rangle = 0 \land \langle \mathbf v_{\mathrm{crease}}, \hat n_2 \rangle = 0$. |
-| `5` | `net_twin_arena_layout_verified` | `L863–L877` | Verifies `% 64 = 0` alignment, pairwise disjointness across all 8 partitions, `327,680 B <= 524,288 B` L2 residency, `1,572,864 B < 2,097,152 B` L3 fit, and C-ABI struct sizes. |
+| `1a` | `circular_tick_window_antisymmetric` | `L47–L59` | RFC-1982 32-bit half-space tick ordering is irreflexive, strictly antisymmetric, and complete on non-antipodal distinct ticks across $2^{32}$ wraparound. |
+| `1b` | `ring64_window_injective` | `L60–L71` | Distinct ticks in the active 64-tick (`500 ms`) window map to strictly distinct ring slots `0..63` across $2^{32}$ wraparound. |
+| `1c` | `ack_mask_u64_baseline_in_ring` | `L72–L83` | Every acknowledged bit $b < 64$ in `ack_mask_u64` within active window age resolves to an un-overwritten server baseline ring slot. |
+| `2a` | `morse_jitter_spike_characterization` | `L89–L103` | Isolated packet-clumping bursts trigger $I_{\mathrm{Morse}} = \delta^2 > 0$, while constant ping and linear clock drift satisfy `I_Morse = -alpha^2 <= 0`. |
+| `2b` | `lag_switch_rewind_non_amplification` | `L104–L115` | Positive arrival-jitter spikes monotonically contract (never widen) effective backward rewind credit `wEff`. |
+| `2c` | `mutual_occluder_cutoff_eliminates_behind_wall_hits` | `L126–L151` | Once target hard-cover occlusion exceeds $\tau_{\mathrm{fair}}$, all clamped rewind ticks and sub-tick interpolations remain inside `Shadow` (`hitAdmissible = False`). |
+| `3a` | `minkowski_pvs_zero_pop_in` & `two_sided_minkowski_pvs_zero_pop_in` | `L159–L182` | Any enemy trajectory entering observer frustum within `dt = rtt_half + tau_margin` already satisfies `visMinkowski` at dispatch time `t0` (`0` pop-in frames). |
+| `3b` | `anti_dma_observational_noninterference` & `anti_dma_occluded_mutation_zero_leak` | `L200–L237` | Raid states agreeing on visible actors emit bit-identical `packDatagram` bytes; mutating occluded out-of-cone enemies leaks `0` bits. |
+| `4a` | `cayley_so3_attitude_orthogonality_and_norm_conservation` | `L260–L286` | Rational $\mathfrak{so}(3)$ Cayley rotor solves `R(w)^T R(w) = I_3` and preserves Euclidean norm $\lVert R\mathbf v \rVert_2^2 = \lVert \mathbf v \rVert_2^2$. |
+| `4b` | `swept_capsule_collide_and_slide_non_penetration` | `L299–L317` | Unilateral wall projection enforces $\langle \mathbf v', \hat n \rangle \ge 0$, preserves tangential slide, and prevents wall-boost (`||v'||^2 <= ||v||^2`). |
+| `4c` | `two_plane_crease_projection_orthogonal` | `L318–L340` | Two-plane corner crease slide along `n_1 x n_2` satisfies $\langle \mathbf v_{\mathrm{crease}}, \hat n_1 \rangle = 0 \land \langle \mathbf v_{\mathrm{crease}}, \hat n_2 \rangle = 0$. |
+| `5` | `net_twin_arena_layout_verified` | `L356–L363` | Verifies `% 64 = 0` alignment, pairwise disjointness across all 8 partitions, `327,680 B <= 524,288 B` L2 residency, `1,572,864 B < 2,097,152 B` L3 fit, and C-ABI struct sizes. |
+| `6a` | `modular_delta_chain_exact_reconstruction` | `L383–L393` | Single-hop and arbitrary `List` multi-hop modular delta chains over `ZMod M`, `UInt8` (`lean_q8`), and `UInt16` reconstruct exact quantized state (`0` drift). |
+| `6b` | `multi_plate_durability_monotone_bounded` | `L399–L420` | Saturating ballistic impacts across `Fin 30` armor zones preserve per-zone monotonicity, unstruck-zone invariance, and `<= 255` bounds (`0` axioms). |
 
 ---
 
-## 6. C-ABI Surface (`include/net_twin.h` & `wasm32-unknown-unknown`)
+## 6. C-ABI Surface (`include/net_twin.h` & `wasm32-unknown-unknown +simd128`)
 
-Exported identically across native shared libraries (`netsnail_rs.dll` / `libnetsnail_rs.so` / `libnetsnail_rs.dylib`) and standalone WebAssembly (`netsnail_rs.wasm`):
+Exported identically across native shared libraries (`netsnail_rs.dll` / `libnetsnail_rs.so` / `libnetsnail_rs.dylib`) and standalone SIMD128 WebAssembly (`netsnail_rs.wasm`):
 
-- **Lifecycle, Map Geometry & Acoustic Emitters**:
+- **Lifecycle, Per-Arena SIMD Override, Map Geometry & Acoustic Emitters**:
   - `int32_t nt_arena_init(NetTwinArena *arena)`
-  - `int32_t nt_set_simd_backend_override(NetTwinArena *arena, uint32_t mode)` (`0 = auto SIMD`, `1 = force portable scalar`)
+  - `int32_t nt_set_simd_backend_override(NetTwinArena *arena, uint32_t mode)` (`0 = auto SIMD`, `1 = force portable scalar`; isolated per non-null `arena` without global pollution)
   - `int32_t nt_load_default_raid_map(NetTwinArena *arena)`
   - `int32_t nt_spawn_player(NetTwinArena *arena, uint32_t player_id, float x, float y, float z, int16_t yaw_q15)`
   - `int32_t nt_get_player_pose(const NetTwinArena *arena, uint32_t player_id, PlayerPoseSnapshot *out_pose)`
   - `int32_t nt_set_player_rtt_ticks(NetTwinArena *arena, uint32_t player_id, uint32_t rtt_ticks)`
   - `int32_t nt_emit_acoustic_event(NetTwinArena *arena, uint32_t source_player_id, float x, float y, float z, const uint8_t band_energy_q8[4])`
-- **128 Hz Ingress, Kinematics & Prediction Replay**:
+- **128 Hz Ingress, Kinematics & Pure Prediction Replay**:
   - `int32_t nt_ingest_client_cmd(NetTwinArena *arena, uint32_t player_id, const ClientInputCmd *cmd)`
   - `int32_t nt_step_kinematics(NetTwinArena *arena)`
-  - `int32_t nt_client_reconcile(NetTwinArena *arena, uint32_t player_id, const PlayerPoseSnapshot *auth_pose, const ClientInputCmd *pending_cmds, uint32_t num_cmds, PlayerPoseSnapshot *out_predicted_pose)`
-- **Sub-Tick Multi-Plate Rewind & Mutual Occluder Gate**:
+  - `int32_t nt_client_reconcile(NetTwinArena *arena, uint32_t player_id, const PlayerPoseSnapshot *auth_pose, const ClientInputCmd *pending_cmds, uint32_t num_cmds, PlayerPoseSnapshot *out_predicted_pose)` (pure & non-destructive on `tier_a_cylinders` and `tier_b_poses_plates`)
+- **1-Bit Voxel DDA, Sub-Tick Multi-Plate Rewind & Mutual Occluder Gate**:
   - `int32_t nt_resolve_subtick_fire(NetTwinArena *arena, uint32_t shooter_id, const ClientInputCmd *fire_cmd, HitRecordOut *out_hit)`
-- **Minkowski PVS Delta Bitpacker & Canonical State Digest**:
+- **Minkowski PVS 2-Tier Modular Delta Bitpacker & Canonical State Digest**:
   - `int32_t nt_pack_client_datagram(NetTwinArena *arena, uint32_t observer_id, uint32_t baseline_ack_tick, uint8_t *out_mtu_buf, uint32_t max_buf_len)`
   - `int32_t nt_unpack_client_datagram(NetTwinArena *client_arena, const uint8_t *in_mtu_buf, uint32_t buf_len, AcousticImpulse *out_acoustics, uint32_t max_acoustics, uint32_t *out_num_acoustics)`
   - `uint64_t nt_hash_arena_deterministic(const NetTwinArena *arena)`
 - **Tier-0 Cross-ISA Primitives & Zero-Alloc WASM32 Static Buffers**:
   - `nt_sin_q15`, `nt_cos_q15`, `nt_atan2_f32`, `nt_sqrt_f32`, `nt_dot16_pairwise_f32`, `nt_cayley_rotor_so3_f32`
-  - `nt_wasm_global_arena`, `nt_wasm_cmd_buf`, `nt_wasm_mtu_buf`, `nt_wasm_hit_buf`, `nt_wasm_acoustic_buf`
+  - `nt_wasm_global_arena`, `nt_wasm_client_arena`, `nt_wasm_cmd_buf`, `nt_wasm_mtu_buf`, `nt_wasm_hit_buf`, `nt_wasm_acoustic_buf`
 
 ---
 
 ## 7. Empirical Verification & Hardware Receipts (`results/*.json`)
 
-All runtime, differential chaos, red-team combat, and hardware cache metrics are reproducibly generated by [`scripts/evaluate_netsnail.py`](../scripts/evaluate_netsnail.py), [`netsnail/fuzzer.py`](../netsnail/fuzzer.py), [`scripts/verify_bcm2712_arena.py`](../scripts/verify_bcm2712_arena.py), and [`scripts/verify_zero_alloc.py`](../scripts/verify_zero_alloc.py):
+All runtime, differential chaos, red-team combat, and hardware cache metrics are reproducibly generated by [`scripts/evaluate_netsnail.py`](../scripts/evaluate_netsnail.py), [`scripts/verify_cross_isa_lockstep.py`](../scripts/verify_cross_isa_lockstep.py), [`scripts/verify_bcm2712_arena.py`](../scripts/verify_bcm2712_arena.py), and [`scripts/verify_zero_alloc.py`](../scripts/verify_zero_alloc.py):
 
 | Verification Dimension | Measured Receipt | Artifact Source |
 | :--- | :--- | :--- |
-| **Cross-ISA `0-ULP` Lockstep (`160,000` player-ticks)** | `16` players $\times$ `10,000` ticks (`20,000` shots, `732` hits, `7` ricochets, `648` penetrations): **`0` mismatched ticks**, `BLAKE3-256 = 7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be` identically on `x86_64 SIMD`, `Scalar`, and `WASM32`; `0.000e+00` Cayley drift. | [`results/cross_isa_blake3_receipts.json`](../results/cross_isa_blake3_receipts.json) |
-| **Hostile `MXCSR` (`FTZ/DAZ`) Caller Resilience** | `8` players $\times$ `512` ticks (`4,096` player-ticks) under `_DN_FLUSH`: **`0` tick mismatches** (`aeb174a5...e24922f`), caller `MXCSR` control word preserved. | [`results/cross_isa_blake3_receipts.json`](../results/cross_isa_blake3_receipts.json) |
+| **Cross-ISA `0-ULP` Lockstep (`160,000` player-ticks)** | `64` players $\times$ `2,500` ticks (`20,000` shots, `3,931` hits, `496` ricochets, `3,454` penetrations): **`0` mismatched ticks**, `BLAKE3-256 = 7035c05a12f037135c84c7597219e9aaeaf73ab8054f3936787344509239cb2f` identically on `x86_64 AVX2`, `Scalar`, and `WASM32 +simd128`; `0.000e+00` Cayley drift. | [`results/cross_isa_lockstep_receipts.json`](../results/cross_isa_lockstep_receipts.json) |
+| **Hostile `MXCSR` (`FTZ/DAZ`) Caller Resilience** | `8` players $\times$ `512` ticks (`4,096` player-ticks) under `_DN_FLUSH`: **`0` tick mismatches** (`b32ec18a...3659ea`), caller `MXCSR` control word preserved. | [`results/cross_isa_lockstep_receipts.json`](../results/cross_isa_lockstep_receipts.json) |
 | **Broadcom BCM2712 Cortex-A76 Cache (`50M` refs)** | `L1d = 72.15%`, `L2 = 98.57%` (`5/8` ways), `L3 = 97.42%` (`12/16` ways), **`0` L3 capacity evictions**, **`LLd miss rate = 0.01029% < 0.100%`**. | [`results/bcm2712_cache_receipts.json`](../results/bcm2712_cache_receipts.json) |
-| **Static Zero-Alloc Binary Import Audit** | `netsnail_rs.dll` (`115,712 B`, `26` exports) & `netsnail_rs.wasm` (`99,689 B`, `29` exports, `0` WASM imports): **`0` dynamic heap allocator imports**. | [`results/bcm2712_cache_receipts.json`](../results/bcm2712_cache_receipts.json) |
-| **32-Tick `nt_client_reconcile` Latency & `< 1200 B` MTU** | `19.90 us` mean (`17.60 us` p50, `36.10 us` p99 Python FFI; `8.85 us` native Rust, `< 90.0 us` budget); 16-player UDP datagram `92.61 B` mean / `168 B` max (`13.95x` smaller than `1,292 B` naive). | [`results/netsnail_evaluation_summary.json`](../results/netsnail_evaluation_summary.json) |
+| **Static Zero-Alloc & WASM32 `+simd128` Audit** | `netsnail_rs.dll` (`125,440 B`, `26` exports) & `netsnail_rs.wasm` (`111,920 B`, `29` exports, `0` WASM imports, `905` `0xFD` SIMD128 bytes): **`0` dynamic heap allocator imports**. | [`results/bcm2712_cache_receipts.json`](../results/bcm2712_cache_receipts.json) |
+| **32-Tick `nt_client_reconcile`, Voxel DDA & `< 1200 B` MTU** | `17.01 us` mean (`16.10 us` p50, `39.91 us` p99, `< 90.0 us` budget); `267.93 us` mean 64p Voxel-DDA sub-tick fire; 16p UDP delta `92.61 B` mean / `168 B` max (`13.95x` smaller than `1,292 B` naive), `1,008 B` worst-case `64p + 8ac` (`<= 1,200 B` MTU). | [`results/netsnail_evaluation_summary.json`](../results/netsnail_evaluation_summary.json) |
 | **Mutual Occluder Cutoff & `clumsy` Lag-Switch Defense** | **`0.0%` behind-wall deaths** (`0 / 50` vs `100.0%` naive; `100.0%` exposed hit control); **`100.0%` `200 ms` `clumsy` burst quarantine** (`0` honest false quarantines). | [`results/netsnail_evaluation_summary.json`](../results/netsnail_evaluation_summary.json) |
 | **Anti-DMA Non-Interference & Doorway PVS** | **`0` wire leak bits & `0` RAM leak bits** (`0.0%` vs `80,355` bits naive across `15` occluded enemies); **`0` doorway pop-in frames** (`12`-tick pre-delivery lead); **`100.0%` acoustic ID stripping**. | [`results/netsnail_evaluation_summary.json`](../results/netsnail_evaluation_summary.json) |

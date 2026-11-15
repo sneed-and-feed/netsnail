@@ -23,8 +23,8 @@ use core::sync::atomic::Ordering;
 pub use arena::{
     AcousticImpulse, ClientInputCmd, ClientJitterGate, HitRecordOut, NetTwinArena,
     PlayerPoseSnapshot, PlayerTickState, TelemetryAndHeader, TierACylinder, NT_ARENA_ALIGN,
-    NT_ARENA_BYTES, NT_MAX_PLAYERS, NT_MTU_CEILING_BYTES, NT_RING_TICKS, NT_TICK_HZ,
-    NT_WASM_MTU_BUF_BYTES,
+    NT_ARENA_BYTES, NT_MAX_PLAYERS, NT_MTU_CEILING_BYTES, NT_POSE_HAS_STAMINA, NT_RING_TICKS,
+    NT_STANCE_MASK_7BIT, NT_TICK_HZ, NT_WASM_MTU_BUF_BYTES,
 };
 
 use arena::{hash_arena_canonical, init_arena_in_place, QuantizedEntityState, NT_STANCE_ACTIVE, NT_STANCE_GROUNDED};
@@ -123,6 +123,10 @@ pub unsafe extern "C" fn nt_arena_init(arena: *mut NetTwinArena) -> i32 {
 
 /// Sets the SIMD execution backend mode (`0 = auto SIMD`, `1 = forced portable scalar`).
 ///
+/// When `arena` is non-null, sets ONLY `(*arena).telemetry_and_header.simd_mode_override`
+/// without mutating `GLOBAL_SIMD_OVERRIDE` (guaranteeing per-arena / thread-parallel isolation).
+/// When `arena` is null, updates `GLOBAL_SIMD_OVERRIDE` for standalone Tier-0 primitives.
+///
 /// # Safety
 /// If non-null, `arena` must point to a valid `NetTwinArena`.
 #[no_mangle]
@@ -132,9 +136,9 @@ pub unsafe extern "C" fn nt_set_simd_backend_override(
 ) -> i32 {
     let _mxcsr = MxcsrGuard::enter();
     let norm_mode = if mode != 0 { 1u32 } else { 0u32 };
-    GLOBAL_SIMD_OVERRIDE.store(norm_mode, Ordering::Relaxed);
     if arena.is_null() {
-        return -1;
+        GLOBAL_SIMD_OVERRIDE.store(norm_mode, Ordering::Relaxed);
+        return 0;
     }
     (*arena).telemetry_and_header.simd_mode_override = norm_mode;
     0
@@ -1168,6 +1172,474 @@ mod tests {
             assert_eq!(vis_ac, 2); // Enemy 7 behind wall is STILL excluded from entity table!
             assert_eq!(nac_a, 1);  // Only 1 anonymous 12-byte diffracted AcousticImpulse delivered!
             assert!(ac_a[0].band_energy_q8[0] > ac_a[0].band_energy_q8[3], "High frequency band should attenuate more than low band under portal diffraction!");
+        }
+    }
+
+    #[test]
+    fn test_v02_bug1_modular_delta_lean_qvz_stance_and_64p_mtu() {
+        let srv = OwnedArena::new_initialized();
+        let cli = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(srv.ptr);
+            nt_load_default_raid_map(cli.ptr);
+
+            // Observer 0 at (-5.0, 0.0) and visible Enemy 1 at (-5.0, 4.0)
+            nt_spawn_player(srv.ptr, 0, -5.0, 0.0, 0.0, 16384);
+            nt_spawn_player(srv.ptr, 1, -5.0, 4.0, 0.0, -16384);
+
+            let mut mtu = [0u8; 1200];
+            let mut ac = [AcousticImpulse::default(); 16];
+            let mut nac = 0u32;
+
+            // Initial full baseline snapshot at tick 0
+            let len0 = nt_pack_client_datagram(srv.ptr, 0, 0, mtu.as_mut_ptr(), 1200);
+            assert!(len0 > 16);
+            assert_eq!(
+                nt_unpack_client_datagram(cli.ptr, mtu.as_ptr(), len0 as u32, ac.as_mut_ptr(), 16, &mut nac),
+                2
+            );
+
+            // Step 40 ticks toggling lean_l, lean_r, crouch, sprint, ads, vz, and >30cm wide jump
+            let mut saw_short_delta = false;
+            let mut saw_wide_delta = false;
+            for step in 0..40u32 {
+                let prev_srv_tick = (*srv.ptr).telemetry_and_header.server_tick;
+                let btns = match step % 4 {
+                    0 => NT_BTN_LEAN_L | NT_BTN_CROUCH,
+                    1 => NT_BTN_LEAN_R | crate::arena::NT_BTN_ADS,
+                    2 => NT_BTN_SPRINT,
+                    _ => NT_BTN_LEAN_L,
+                };
+                let cmd1 = ClientInputCmd {
+                    cmd_tick: prev_srv_tick + 1,
+                    buttons_stance: btns,
+                    move_xy_q15: [20000, -15000],
+                    yaw_pitch_q15: [-16384 + (step as i16) * 512, -1200 + (step as i16) * 64],
+                    fire_subtick_u8: 0,
+                    weapon_slot_u8: 0,
+                };
+                nt_ingest_client_cmd(srv.ptr, 1, &cmd1);
+                nt_step_kinematics(srv.ptr);
+
+                let cur_tick = (*srv.ptr).telemetry_and_header.server_tick;
+                let cur_slot = (cur_tick as usize) & 63;
+                // Inject non-zero vertical velocity qvz and, on step 20, a >0.35 m displacement to exercise 0xC0 wide delta
+                (*srv.ptr).tier_b_poses_plates[cur_slot][1].vel[2] =
+                    if (step & 1) == 0 { 2.25f32 } else { -1.75f32 };
+                if step == 20 {
+                    (*srv.ptr).tier_b_poses_plates[cur_slot][1].pos[0] += 0.48f32;
+                }
+
+                let dlen = nt_pack_client_datagram(srv.ptr, 0, prev_srv_tick, mtu.as_mut_ptr(), 1200);
+                assert!(dlen > 16 && (dlen as usize) < NT_MTU_CEILING_BYTES);
+
+                // Inspect Enemy 1 tag (Observer 0 is first record at byte 16; Enemy 1 follows it)
+                let obs_tag = mtu[16] & 0xC0;
+                let obs_rec_len = if obs_tag == 0x80 { 12usize } else { 14usize };
+                let enemy_tag = mtu[16 + obs_rec_len] & 0xC0;
+                if enemy_tag == 0x80 {
+                    saw_short_delta = true;
+                } else if enemy_tag == 0xC0 {
+                    saw_wide_delta = true;
+                }
+
+                let vis = nt_unpack_client_datagram(
+                    cli.ptr,
+                    mtu.as_ptr(),
+                    dlen as u32,
+                    ac.as_mut_ptr(),
+                    16,
+                    &mut nac,
+                );
+                assert_eq!(vis, 2);
+
+                // Zero-drift quantized state equality across all 10 quantized fields (lean_q8, qvz_16, stance_u16, etc.)
+                let q_srv = (*srv.ptr).client_baseline_snapshots.quantized_ring[cur_slot][1];
+                let q_cli = (*cli.ptr).client_baseline_snapshots.quantized_ring[cur_slot][1];
+                assert_eq!(q_cli, q_srv, "Modular delta drift at step {}!", step);
+
+                let s_cli = (*cli.ptr).tier_b_poses_plates[cur_slot][1];
+                assert_eq!(s_cli.lean_q15, (q_srv.lean_q8 as i16) << 8);
+                assert_eq!(s_cli.stance_flags & NT_STANCE_MASK_7BIT, q_srv.stance_u16 & NT_STANCE_MASK_7BIT);
+                assert!((s_cli.vel[2] - (q_srv.qvz_16 as f32) / 16.0f32).abs() < 1e-6f32);
+            }
+            assert!(saw_short_delta, "Expected 12-byte 0x80 short modular delta records");
+            assert!(saw_wide_delta, "Expected 14-byte 0xC0 wide modular delta record on >25.4cm jump");
+
+            // Worst-case 64-player full-state + 8 acoustic impulses <= 1,200 B MTU ceiling
+            // Spawn all 64 players in unobstructed West Hall (x in [-28, -14], y in [-9, +9])
+            let srv64 = OwnedArena::new_initialized();
+            nt_load_default_raid_map(srv64.ptr);
+            for p in 0..64u32 {
+                let col = (p % 8) as f32;
+                let row = (p / 8) as f32;
+                let rx = -26.5f32 + col * 1.5f32;
+                let ry = -7.5f32 + row * 2.0f32;
+                nt_spawn_player(srv64.ptr, p, rx, ry, 0.0, 0);
+            }
+            let bands = [210u8, 180, 140, 100];
+            for k in 0..8u32 {
+                nt_emit_acoustic_event(srv64.ptr, k + 1, -20.0, 0.0, 0.0, bands.as_ptr());
+            }
+            let len64 = nt_pack_client_datagram(srv64.ptr, 0, 0, mtu.as_mut_ptr(), 1200);
+            assert!(
+                len64 > 0 && (len64 as usize) <= 1008 && (len64 as usize) < NT_MTU_CEILING_BYTES,
+                "64p + 8 acoustics exceeded MTU: {} B",
+                len64
+            );
+            let cli64 = OwnedArena::new_initialized();
+            let vis64 = nt_unpack_client_datagram(
+                cli64.ptr,
+                mtu.as_ptr(),
+                len64 as u32,
+                ac.as_mut_ptr(),
+                16,
+                &mut nac,
+            );
+            assert_eq!(vis64, 64);
+            assert_eq!(nac, 8);
+        }
+    }
+
+    #[test]
+    fn test_v02_bug2_long_range_and_ricochet_projectiles_hit_capsules_no_double_sweep() {
+        // (a) CQB hit at <= 25 m resolves instantaneously and spawns 0 straight-through projectiles (no double-sweep)
+        let arena_cqb = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(arena_cqb.ptr);
+            // Clear 58m outer-west corridor along x = -18.0
+            nt_spawn_player(arena_cqb.ptr, 0, -18.0, -20.0, 0.0, 16384); // Shooter facing +Y
+            nt_spawn_player(arena_cqb.ptr, 1, -18.0, -10.0, 0.0, -16384); // CQB victim at 10 m
+            nt_spawn_player(arena_cqb.ptr, 2, -18.0, 18.0, 0.0, -16384); // Downrange bystander at 38 m
+
+            let shot = ClientInputCmd {
+                cmd_tick: 0,
+                buttons_stance: NT_BTN_FIRE,
+                move_xy_q15: [0, 0],
+                yaw_pitch_q15: [16384, -300],
+                fire_subtick_u8: 0,
+                weapon_slot_u8: 1, // AP rifle (penetrates)
+            };
+            let mut hit = HitRecordOut::default();
+            nt_resolve_subtick_fire(arena_cqb.ptr, 0, &shot, &mut hit);
+            assert_eq!(hit.victim_id, 1);
+            assert_ne!(hit.outcome_flags & NT_HIT_FLAG_HIT, 0);
+            assert_eq!(
+                (*arena_cqb.ptr).telemetry_and_header.active_projectile_count,
+                0,
+                "Penetrating CQB hit must NOT spawn a duplicate projectile!"
+            );
+            for _ in 0..10 {
+                nt_step_kinematics(arena_cqb.ptr);
+            }
+            let slot_end = ((*arena_cqb.ptr).telemetry_and_header.server_tick as usize) & 63;
+            assert_eq!(
+                (*arena_cqb.ptr).tier_b_poses_plates[slot_end][2].health_q8,
+                25600,
+                "Downrange bystander should take zero double-sweep damage!"
+            );
+        }
+
+        // (b) Long-range (> 25 m) shot spawns projectile at 25.0 m handoff and hits enemy capsule at 38 m!
+        let arena_lr = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(arena_lr.ptr);
+            nt_spawn_player(arena_lr.ptr, 0, -18.0, -20.0, 0.0, 16384); // Shooter at y = -20
+            nt_spawn_player(arena_lr.ptr, 1, -18.0, 18.0, 0.0, -16384); // Target at y = +18 (38 m > 25 m!)
+
+            let lr_shot = ClientInputCmd {
+                cmd_tick: 0,
+                buttons_stance: NT_BTN_FIRE,
+                move_xy_q15: [0, 0],
+                yaw_pitch_q15: [16384, -150], // Aim at chest accounting for slight 13m ballistic drop
+                fire_subtick_u8: 0,
+                weapon_slot_u8: 2, // 7.62x51 M61 Sniper (840 m/s)
+            };
+            let mut lr_hit = HitRecordOut::default();
+            nt_resolve_subtick_fire(arena_lr.ptr, 0, &lr_shot, &mut lr_hit);
+            assert_eq!(lr_hit.victim_id, 0xFFFF_FFFF); // Deferred beyond 25 m CQB horizon
+            assert_eq!((*arena_lr.ptr).telemetry_and_header.active_projectile_count, 1);
+            // Verify handoff starts at ~25.0 m from muzzle (y ~ -20 + 25 = +5.0), never double-sweeping [0, 25 m]
+            let p0 = (*arena_lr.ptr).projectiles_acoustic_slab.projectiles[0];
+            assert!((p0.traveled_dist_m - 25.0f32).abs() < 1e-4f32);
+            assert!((p0.pos[1] - 5.0f32).abs() < 0.25f32);
+
+            let orig_hp = (*arena_lr.ptr).tier_b_poses_plates[0][1].health_q8;
+            let orig_armor: u32 = (*arena_lr.ptr).tier_b_poses_plates[0][1]
+                .plate_hp_pools_q8
+                .iter()
+                .map(|&x| x as u32)
+                .sum();
+
+            for _ in 0..6 {
+                nt_step_kinematics(arena_lr.ptr);
+            }
+            let slot_lr = ((*arena_lr.ptr).telemetry_and_header.server_tick as usize) & 63;
+            let post_st = (*arena_lr.ptr).tier_b_poses_plates[slot_lr][1];
+            let post_armor: u32 = post_st.plate_hp_pools_q8.iter().map(|&x| x as u32).sum();
+            assert!(
+                post_st.health_q8 < orig_hp && post_armor < orig_armor,
+                "Long-range (>25m) projectile failed to damage enemy capsule/plates! hp={} armor={}",
+                post_st.health_q8,
+                post_armor
+            );
+            assert_eq!(
+                (*arena_lr.ptr).telemetry_and_header.active_projectile_count,
+                0,
+                "Absorbed/penetrating projectile should deactivate upon capsule impact!"
+            );
+        }
+
+        // (c) Shallow hard-cover graze at <= 25 m ricochets into an active projectile that hits angled target!
+        let arena_ric = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(arena_ric.ptr);
+            // South wall inner face is at y = -11.5 for x in [-9.5, -2.0].
+            // Shooter at (-8.5, -10.7, 0.0) fires along (dx=3.2, dy=-0.8) -> hits y=-11.5 at x=-5.3,
+            // bounces along (dx=3.2, dy=+0.8) straight through Target 1 at (-2.1, -10.7, 0.0)!
+            let ric_rad = nt_atan2_f32(-0.8f32, 3.2f32);
+            let ric_yaw = ((ric_rad / core::f32::consts::PI) * 32768.0f32) as i16;
+            nt_spawn_player(arena_ric.ptr, 0, -8.5, -10.7, 0.0, ric_yaw);
+            nt_spawn_player(arena_ric.ptr, 1, -2.1, -10.7, 0.0, -32768);
+
+            let ric_shot = ClientInputCmd {
+                cmd_tick: 0,
+                buttons_stance: NT_BTN_FIRE,
+                move_xy_q15: [0, 0],
+                yaw_pitch_q15: [ric_yaw, -200],
+                fire_subtick_u8: 0,
+                weapon_slot_u8: 1,
+            };
+            let mut ric_hit = HitRecordOut::default();
+            nt_resolve_subtick_fire(arena_ric.ptr, 0, &ric_shot, &mut ric_hit);
+            assert_ne!(ric_hit.outcome_flags & NT_HIT_FLAG_RICOCHET, 0);
+            assert_eq!((*arena_ric.ptr).telemetry_and_header.active_projectile_count, 1);
+
+            nt_step_kinematics(arena_ric.ptr);
+            nt_step_kinematics(arena_ric.ptr);
+            let slot_r = ((*arena_ric.ptr).telemetry_and_header.server_tick as usize) & 63;
+            let st_r = (*arena_ric.ptr).tier_b_poses_plates[slot_r][1];
+            let armor_r: u32 = st_r.plate_hp_pools_q8.iter().map(|&x| x as u32).sum();
+            assert!(
+                st_r.health_q8 < 25600 || armor_r < (12800 + 20480 + 17920 + 10240),
+                "Wall-ricocheted projectile failed to hit angled target capsule!"
+            );
+        }
+    }
+
+    #[test]
+    fn test_v02_bug3_pure_idempotent_client_reconcile_and_zero_stamina_preservation() {
+        let srv = OwnedArena::new_initialized();
+        let cli = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(srv.ptr);
+            nt_load_default_raid_map(cli.ptr);
+            nt_spawn_player(srv.ptr, 0, -18.0, -25.0, 0.0, 16384);
+            nt_spawn_player(cli.ptr, 0, -18.0, -25.0, 0.0, 16384);
+
+            // Force stamina_q15 = 0 (complete sprint exhaustion) on server
+            let slot0 = ((*srv.ptr).telemetry_and_header.server_tick as usize) & 63;
+            (*srv.ptr).tier_b_poses_plates[slot0][0].stamina_q15 = 0;
+
+            let mut auth_zero_stam = PlayerPoseSnapshot::default();
+            nt_get_player_pose(srv.ptr, 0, &mut auth_zero_stam);
+            assert_ne!(auth_zero_stam.stance_flags & NT_POSE_HAS_STAMINA, 0);
+            assert_eq!(auth_zero_stam.stance_flags >> 8, 0, "Packed stamina u8 must be 0!");
+
+            // Build 16 sprint-attempt commands: since stamina == 0 (and 16*55 = 880 <= 1024),
+            // server MUST stay at walk speed (never sprinting) across all 16 ticks!
+            let mut cmds = [ClientInputCmd::default(); 16];
+            for (i, c) in cmds.iter_mut().enumerate() {
+                *c = ClientInputCmd {
+                    cmd_tick: (i + 1) as u32,
+                    buttons_stance: NT_BTN_SPRINT,
+                    move_xy_q15: [32767, 0],
+                    yaw_pitch_q15: [16384, 0],
+                    fire_subtick_u8: 0,
+                    weapon_slot_u8: 0,
+                };
+                nt_ingest_client_cmd(srv.ptr, 0, c);
+                nt_step_kinematics(srv.ptr);
+            }
+            let mut srv_final = PlayerPoseSnapshot::default();
+            nt_get_player_pose(srv.ptr, 0, &mut srv_final);
+
+            // Snapshot client's Tier A & Tier B ring bytes BEFORE nt_client_reconcile
+            let tier_a_before = (*cli.ptr).tier_a_cylinders;
+            let tier_b_before = (*cli.ptr).tier_b_poses_plates;
+
+            let mut pred1 = PlayerPoseSnapshot::default();
+            let mut pred2 = PlayerPoseSnapshot::default();
+            nt_client_reconcile(cli.ptr, 0, &auth_zero_stam, cmds.as_ptr(), 16, &mut pred1);
+            nt_client_reconcile(cli.ptr, 0, &auth_zero_stam, cmds.as_ptr(), 16, &mut pred2);
+
+            // 1. Strict purity on Tier A and Tier B rings + idempotence across repeated calls
+            assert_eq!((*cli.ptr).tier_a_cylinders, tier_a_before, "nt_client_reconcile mutated Tier A!");
+            assert_eq!((*cli.ptr).tier_b_poses_plates, tier_b_before, "nt_client_reconcile mutated Tier B!");
+            assert_eq!(pred1, pred2, "nt_client_reconcile is not idempotent!");
+
+            // 2. Exact 0-ULP lockstep with exhausted server player (did NOT reset 0 stamina to 32767!)
+            assert_eq!(pred1.x.to_bits(), srv_final.x.to_bits());
+            assert_eq!(pred1.y.to_bits(), srv_final.y.to_bits());
+            assert_eq!(pred1.vy.to_bits(), srv_final.vy.to_bits());
+            assert!(
+                pred1.vy < 4.5f32,
+                "Zero-stamina player erroneously sprinted at vy={}!",
+                pred1.vy
+            );
+        }
+    }
+
+    #[test]
+    fn test_v02_bug4_subtick_shortest_arc_yaw_and_lean_plate_interpolation() {
+        // 1. Verify shortest modular i16 arc across ±pi seam: +32000 -> -32000 at alpha=0.5
+        //    dyaw = (-32000i16).wrapping_sub(32000) = +1536 -> midpoint = 32768 (-32768, facing -X, NOT 0 facing +X!)
+        let mid_yaw = ballistics::lerp_yaw_q15_shortest(32000, -32000, 0.5f32);
+        assert!(
+            mid_yaw <= -32700 || mid_yaw >= 32700,
+            "Shortest-arc yaw across ±pi seam gave {} instead of ±32768!",
+            mid_yaw
+        );
+
+        let arena = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(arena.ptr);
+            // Shooter 0 at (-8.0, -5.0, 0.0) facing +X (yaw = 0) toward Victim 1 at (-2.0, -5.0, 0.0)
+            nt_spawn_player(arena.ptr, 0, -8.0, -5.0, 0.0, 0);
+            nt_spawn_player(arena.ptr, 1, -2.0, -5.0, 0.0, 32000);
+            nt_step_kinematics(arena.ptr); // tick 1: Victim yaw = +32000, lean_q15 = 0
+
+            // Advance to tick 2 and set Victim yaw = -32000 (flick across ±pi facing Shooter -X!) and full Q/E lean (4096)
+            nt_step_kinematics(arena.ptr);
+            (*arena.ptr).tier_b_poses_plates[1][1].yaw_q15 = 32000;
+            (*arena.ptr).tier_b_poses_plates[1][1].lean_q15 = 0;
+            (*arena.ptr).tier_b_poses_plates[2][1].yaw_q15 = -32000;
+            (*arena.ptr).tier_b_poses_plates[2][1].lean_q15 = 4096;
+            // Widen Tier A broadphase cylinder so leaned sub-tick pose is inside broadphase
+            (*arena.ptr).tier_a_cylinders[1][1].rad_height = TierACylinder::pack_rad_height(600, 1800);
+            (*arena.ptr).tier_a_cylinders[2][1].rad_height = TierACylinder::pack_rad_height(600, 1800);
+
+            // At alpha = 128/256 = 0.5 between tick 1 and tick 2:
+            // - Victim yaw is -32768 (facing -X directly AT Shooter 0 -> front upper thoracic plate zone 6 or 7, NOT back plate 8/9!)
+            // - Victim lean_q15 is 2048 -> lean_shift_m = 0.10 m -> 0.65 * 0.10 = +0.065 m in +Y!
+            let aim_y_offset = 0.065f32;
+            let aim_rad = nt_atan2_f32(aim_y_offset, 6.0f32);
+            let aim_yaw = ((aim_rad / core::f32::consts::PI) * 32768.0f32) as i16;
+            let fire_cmd = ClientInputCmd {
+                cmd_tick: 1,
+                buttons_stance: NT_BTN_FIRE,
+                move_xy_q15: [0, 0],
+                yaw_pitch_q15: [aim_yaw, -500], // Upper chest height u_z ~ 0.68
+                fire_subtick_u8: 128,           // alpha = 0.5
+                weapon_slot_u8: 1,
+            };
+            let mut hit = HitRecordOut::default();
+            nt_resolve_subtick_fire(arena.ptr, 0, &fire_cmd, &mut hit);
+            assert_eq!(hit.victim_id, 1);
+            assert_ne!(hit.outcome_flags & NT_HIT_FLAG_HIT, 0);
+            assert!(
+                hit.plate_zone_id == 6 || hit.plate_zone_id == 7,
+                "Expected front thoracic plate (6 or 7) across ±pi seam, got zone {}!",
+                hit.plate_zone_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_v02_bug5_simd_override_per_arena_isolation() {
+        let arena_a = OwnedArena::new_initialized();
+        let arena_b = OwnedArena::new_initialized();
+        unsafe {
+            assert_eq!(nt_set_simd_backend_override(core::ptr::null_mut(), 0), 0);
+            assert_eq!(GLOBAL_SIMD_OVERRIDE.load(Ordering::Relaxed), 0);
+
+            // Setting arena_b to forced scalar MUST NOT mutate GLOBAL_SIMD_OVERRIDE or arena_a!
+            assert_eq!(nt_set_simd_backend_override(arena_b.ptr, 1), 0);
+            assert_eq!((*arena_b.ptr).telemetry_and_header.simd_mode_override, 1);
+            assert_eq!((*arena_a.ptr).telemetry_and_header.simd_mode_override, 0);
+            assert_eq!(
+                GLOBAL_SIMD_OVERRIDE.load(Ordering::Relaxed),
+                0,
+                "Non-null arena override polluted GLOBAL_SIMD_OVERRIDE!"
+            );
+
+            // Null arena pointer toggles GLOBAL_SIMD_OVERRIDE cleanly
+            assert_eq!(nt_set_simd_backend_override(core::ptr::null_mut(), 1), 0);
+            assert_eq!(GLOBAL_SIMD_OVERRIDE.load(Ordering::Relaxed), 1);
+            assert_eq!(nt_set_simd_backend_override(core::ptr::null_mut(), 0), 0);
+            assert_eq!(GLOBAL_SIMD_OVERRIDE.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
+    fn test_v02_voxel_dda_vs_pure_bvh_ray_exact_equivalence() {
+        let arena = OwnedArena::new_initialized();
+        unsafe {
+            nt_load_default_raid_map(arena.ptr);
+            let map = &(*arena.ptr).static_voxel_bvh;
+
+            let mut rng: u64 = 0x5EED_DDA0_2026_0200;
+            let mut hits_verified = 0u32;
+            let mut misses_verified = 0u32;
+
+            for case in 0..5_000u32 {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let ox = (((rng & 0xFFFF) as f32) / 65535.0f32) * 60.0f32 - 30.0f32;
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let oy = (((rng & 0xFFFF) as f32) / 65535.0f32) * 60.0f32 - 30.0f32;
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let oz = (((rng & 0xFFFF) as f32) / 65535.0f32) * 3.8f32 + 0.05f32;
+
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let (dx, dy, dz) = if case < 200 {
+                    // Axis-aligned and grazing cell-boundary stress rays
+                    match case % 6 {
+                        0 => (1.0f32, 0.0f32, 0.0f32),
+                        1 => (-1.0f32, 0.0f32, 0.0f32),
+                        2 => (0.0f32, 1.0f32, 0.0f32),
+                        3 => (0.0f32, -1.0f32, 0.0f32),
+                        4 => (0.0f32, 0.0f32, 1.0f32),
+                        _ => (0.99995f32, 0.00999f32, 0.0f32),
+                    }
+                } else {
+                    let rx = (((rng & 0xFFFF) as f32) / 32767.5f32) - 1.0f32;
+                    let ry = ((((rng >> 16) & 0xFFFF) as f32) / 32767.5f32) - 1.0f32;
+                    let rz = ((((rng >> 32) & 0xFFFF) as f32) / 32767.5f32 - 1.0f32) * 0.35f32;
+                    let len = nt_sqrt_f32((rx * rx + ry * ry) + rz * rz).max(1e-4f32);
+                    (rx / len, ry / len, rz / len)
+                };
+
+                let max_dist = 0.5f32 + (((rng >> 48) as u16 as f32) / 65535.0f32) * 55.0f32;
+                let origin = [ox, oy, oz];
+                let dir = [dx, dy, dz];
+                let inv_dir = map_bvh::safe_inv_dir(&dir);
+
+                let dda_res = map_bvh::raycast_hard_cover(map, &origin, &dir, max_dist);
+                let bvh_res = map_bvh::raycast_hard_cover_bvh(map, &origin, &inv_dir, max_dist);
+
+                match (dda_res, bvh_res) {
+                    (Some((t1, n1)), Some((t2, n2))) => {
+                        assert_eq!(
+                            t1.to_bits(),
+                            t2.to_bits(),
+                            "Voxel DDA vs BVH t_hit mismatch at case {}: {} vs {}",
+                            case,
+                            t1,
+                            t2
+                        );
+                        assert_eq!(n1, n2, "Voxel DDA vs BVH normal mismatch at case {}", case);
+                        hits_verified += 1;
+                    }
+                    (None, None) => {
+                        misses_verified += 1;
+                    }
+                    _ => panic!(
+                        "Voxel DDA vs pure BVH hit/miss disagreement at case {}: origin={:?} dir={:?} max_dist={} dda={:?} bvh={:?}",
+                        case, origin, dir, max_dist, dda_res, bvh_res
+                    ),
+                }
+            }
+            assert!(hits_verified > 1000 && misses_verified > 500);
         }
     }
 }

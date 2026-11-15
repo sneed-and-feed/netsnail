@@ -532,6 +532,7 @@ def verify_bcm2712_arena(
 
     receipts: Dict[str, Any] = {
         "schema_version": "1.0.0",
+        "version": "0.2.0",
         "verifier": "Broadcom BCM2712 Cortex-A76 Hardware Cache Verifier (scripts/verify_bcm2712_arena.py)",
         "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "hardware_target": BCM2712_SPECS["hardware_target"],

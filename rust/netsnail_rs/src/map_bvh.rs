@@ -15,6 +15,9 @@ pub const VOXEL_INV_CELL_M: f32 = 2.0f32;
 pub const WORLD_MIN_X: f32 = -32.0f32;
 pub const WORLD_MIN_Y: f32 = -32.0f32;
 pub const WORLD_MIN_Z: f32 = 0.0f32;
+pub const WORLD_MAX_X: f32 = 32.0f32;
+pub const WORLD_MAX_Y: f32 = 32.0f32;
+pub const WORLD_MAX_Z: f32 = 8.0f32;
 
 #[inline]
 pub fn set_voxel_bit(map: &mut StaticVoxelBvh, ix: usize, iy: usize, iz: usize) {
@@ -65,13 +68,33 @@ pub fn add_brush_aabb(
     map.header.brush_indices[idx] = idx as u16;
     map.header.num_brushes += 1;
 
-    // Rasterize hard-cover brush into the 128 x 128 x 16 1-bit voxel grid
-    let x0 = (((clean_min[0] - WORLD_MIN_X) * VOXEL_INV_CELL_M) as i32).clamp(0, (VOXEL_NX - 1) as i32) as usize;
-    let x1 = (((clean_max[0] - WORLD_MIN_X - 1e-4) * VOXEL_INV_CELL_M) as i32).clamp(0, (VOXEL_NX - 1) as i32) as usize;
-    let y0 = (((clean_min[1] - WORLD_MIN_Y) * VOXEL_INV_CELL_M) as i32).clamp(0, (VOXEL_NY - 1) as i32) as usize;
-    let y1 = (((clean_max[1] - WORLD_MIN_Y - 1e-4) * VOXEL_INV_CELL_M) as i32).clamp(0, (VOXEL_NY - 1) as i32) as usize;
-    let z0 = (((clean_min[2] - WORLD_MIN_Z) * VOXEL_INV_CELL_M) as i32).clamp(0, (VOXEL_NZ - 1) as i32) as usize;
-    let z1 = (((clean_max[2] - WORLD_MIN_Z - 1e-4) * VOXEL_INV_CELL_M) as i32).clamp(0, (VOXEL_NZ - 1) as i32) as usize;
+    // Flag out-of-grid brushes so Voxel DDA falls back conservatively if needed
+    if clean_min[0] < WORLD_MIN_X
+        || clean_max[0] > WORLD_MAX_X
+        || clean_min[1] < WORLD_MIN_Y
+        || clean_max[1] > WORLD_MAX_Y
+        || clean_min[2] < WORLD_MIN_Z
+        || clean_max[2] > WORLD_MAX_Z
+    {
+        map.header.initialized |= 2;
+    }
+
+    // Rasterize hard-cover brush into the 128 x 128 x 16 1-bit voxel grid with 1mm conservative halo
+    let to_vox = |coord: f32, wmin: f32, max_idx: i32| -> usize {
+        let rel = (coord - wmin) * VOXEL_INV_CELL_M;
+        let fl = if rel >= 0.0f32 {
+            rel as i32
+        } else {
+            (rel as i32) - 1
+        };
+        fl.clamp(0, max_idx) as usize
+    };
+    let x0 = to_vox(clean_min[0] - 1e-3f32, WORLD_MIN_X, (VOXEL_NX - 1) as i32);
+    let x1 = to_vox(clean_max[0] + 1e-3f32, WORLD_MIN_X, (VOXEL_NX - 1) as i32);
+    let y0 = to_vox(clean_min[1] - 1e-3f32, WORLD_MIN_Y, (VOXEL_NY - 1) as i32);
+    let y1 = to_vox(clean_max[1] + 1e-3f32, WORLD_MIN_Y, (VOXEL_NY - 1) as i32);
+    let z0 = to_vox(clean_min[2] - 1e-3f32, WORLD_MIN_Z, (VOXEL_NZ - 1) as i32);
+    let z1 = to_vox(clean_max[2] + 1e-3f32, WORLD_MIN_Z, (VOXEL_NZ - 1) as i32);
 
     if clean_max[0] > clean_min[0] && clean_max[1] > clean_min[1] && clean_max[2] > clean_min[2] {
         for iz in z0..=z1 {
@@ -289,7 +312,7 @@ pub fn populate_default_raid_map(map: &mut StaticVoxelBvh) {
     add_portal_aperture(map, [1.7, 1.7, 1.3], [0.3, 0.3, 1.3], 0, 64);
 
     rebuild_static_bvh(map);
-    map.header.initialized = 1;
+    map.header.initialized |= 1;
 }
 
 #[inline]
@@ -330,7 +353,7 @@ fn ray_aabb_slab(
 }
 
 #[inline]
-fn safe_inv_dir(dir: &[f32; 3]) -> [f32; 3] {
+pub fn safe_inv_dir(dir: &[f32; 3]) -> [f32; 3] {
     let inv_one = |d: f32| -> f32 {
         if abs_f32(d) < 1e-8f32 {
             if d.to_bits() & 0x8000_0000 != 0 {
@@ -345,17 +368,122 @@ fn safe_inv_dir(dir: &[f32; 3]) -> [f32; 3] {
     [inv_one(dir[0]), inv_one(dir[1]), inv_one(dir[2])]
 }
 
-/// Raycasts against `StaticVoxelBvh` up to `max_dist`, returning `Some((t_hit, normal))` on hit.
-pub fn raycast_hard_cover(
+/// Amanatides-Woo 3D 1-bit Voxel DDA broadphase scan over the `32 KB` `128x128x16` occupancy grid.
+/// Returns `false` if the ray `[0.0, max_dist]` traverses strictly empty `0`-bit voxel cells,
+/// allowing open sightlines to bypass the `256 KB` BVH tree completely with zero loss of exactness.
+#[inline]
+pub fn voxel_dda_any_occupied(
     map: &StaticVoxelBvh,
     origin: &[f32; 3],
     dir: &[f32; 3],
+    inv_dir: &[f32; 3],
+    max_dist: f32,
+) -> bool {
+    if (map.header.initialized & 2) != 0 {
+        return true;
+    }
+
+    let gmin = [WORLD_MIN_X, WORLD_MIN_Y, WORLD_MIN_Z];
+    let gmax = [WORLD_MAX_X, WORLD_MAX_Y, WORLD_MAX_Z];
+    let mut t_enter = 0.0f32;
+    let mut t_exit = max_dist;
+    for ax in 0..3 {
+        let t1 = (gmin[ax] - origin[ax]) * inv_dir[ax];
+        let t2 = (gmax[ax] - origin[ax]) * inv_dir[ax];
+        let (tn, tf) = if t1 <= t2 { (t1, t2) } else { (t2, t1) };
+        if tn > t_enter {
+            t_enter = tn;
+        }
+        if tf < t_exit {
+            t_exit = tf;
+        }
+        if t_enter > t_exit {
+            return false;
+        }
+    }
+
+    let px = origin[0] + dir[0] * t_enter;
+    let py = origin[1] + dir[1] * t_enter;
+    let pz = origin[2] + dir[2] * t_enter;
+
+    let mut ix = (((px - WORLD_MIN_X) * VOXEL_INV_CELL_M).max(0.0f32) as i32)
+        .clamp(0, (VOXEL_NX - 1) as i32);
+    let mut iy = (((py - WORLD_MIN_Y) * VOXEL_INV_CELL_M).max(0.0f32) as i32)
+        .clamp(0, (VOXEL_NY - 1) as i32);
+    let mut iz = (((pz - WORLD_MIN_Z) * VOXEL_INV_CELL_M).max(0.0f32) as i32)
+        .clamp(0, (VOXEL_NZ - 1) as i32);
+
+    let init_axis = |p: f32, d: f32, inv: f32, wmin: f32, idx: i32| -> (i32, f32, f32) {
+        if d > 1e-8f32 {
+            let next_b = wmin + ((idx + 1) as f32) * VOXEL_CELL_M;
+            (
+                1,
+                t_enter + ((next_b - p) * inv).max(0.0f32),
+                VOXEL_CELL_M * inv,
+            )
+        } else if d < -1e-8f32 {
+            let next_b = wmin + (idx as f32) * VOXEL_CELL_M;
+            (
+                -1,
+                t_enter + ((next_b - p) * inv).max(0.0f32),
+                -VOXEL_CELL_M * inv,
+            )
+        } else {
+            (0, f32::INFINITY, f32::INFINITY)
+        }
+    };
+
+    let (step_x, mut tmax_x, tdelta_x) = init_axis(px, dir[0], inv_dir[0], WORLD_MIN_X, ix);
+    let (step_y, mut tmax_y, tdelta_y) = init_axis(py, dir[1], inv_dir[1], WORLD_MIN_Y, iy);
+    let (step_z, mut tmax_z, tdelta_z) = init_axis(pz, dir[2], inv_dir[2], WORLD_MIN_Z, iz);
+
+    let limit_t = t_exit + 1e-4f32;
+    for _ in 0..280 {
+        if get_voxel_bit(map, ix, iy, iz) {
+            return true;
+        }
+        if tmax_x <= tmax_y && tmax_x <= tmax_z {
+            if tmax_x > limit_t {
+                break;
+            }
+            ix += step_x;
+            if ix < 0 || ix >= VOXEL_NX as i32 {
+                break;
+            }
+            tmax_x += tdelta_x;
+        } else if tmax_y <= tmax_z {
+            if tmax_y > limit_t {
+                break;
+            }
+            iy += step_y;
+            if iy < 0 || iy >= VOXEL_NY as i32 {
+                break;
+            }
+            tmax_y += tdelta_y;
+        } else {
+            if tmax_z > limit_t {
+                break;
+            }
+            iz += step_z;
+            if iz < 0 || iz >= VOXEL_NZ as i32 {
+                break;
+            }
+            tmax_z += tdelta_z;
+        }
+    }
+    false
+}
+
+/// Pure static BVH slab raycaster (used for refinement on occupied voxels and direct equivalence tests).
+pub fn raycast_hard_cover_bvh(
+    map: &StaticVoxelBvh,
+    origin: &[f32; 3],
+    inv_dir: &[f32; 3],
     max_dist: f32,
 ) -> Option<(f32, [f32; 3])> {
     if map.header.num_bvh_nodes == 0 || max_dist <= 0.0 {
         return None;
     }
-    let inv_dir = safe_inv_dir(dir);
     let mut best_t = max_dist;
     let mut best_normal = [0.0f32; 3];
     let mut hit_any = false;
@@ -368,7 +496,7 @@ pub fn raycast_hard_cover(
         sp -= 1;
         let nidx = stack[sp] as usize;
         let node = &map.bvh_nodes[nidx];
-        if ray_aabb_slab(origin, &inv_dir, &node.min, &node.max, best_t).is_none() {
+        if ray_aabb_slab(origin, inv_dir, &node.min, &node.max, best_t).is_none() {
             continue;
         }
         if node.count > 0 {
@@ -380,7 +508,7 @@ pub fn raycast_hard_cover(
                     continue;
                 }
                 if let Some((t_hit, ax, sgn)) =
-                    ray_aabb_slab(origin, &inv_dir, &b.min, &b.max, best_t)
+                    ray_aabb_slab(origin, inv_dir, &b.min, &b.max, best_t)
                 {
                     if t_hit < best_t {
                         best_t = t_hit;
@@ -404,6 +532,24 @@ pub fn raycast_hard_cover(
     } else {
         None
     }
+}
+
+/// Raycasts against `StaticVoxelBvh` up to `max_dist` using the `32 KB` 1-bit Voxel DDA fast-path
+/// followed by exact static BVH brush refinement (`0-ULP` identical `t_hit` and `normal`).
+pub fn raycast_hard_cover(
+    map: &StaticVoxelBvh,
+    origin: &[f32; 3],
+    dir: &[f32; 3],
+    max_dist: f32,
+) -> Option<(f32, [f32; 3])> {
+    if map.header.num_bvh_nodes == 0 || max_dist <= 0.0 {
+        return None;
+    }
+    let inv_dir = safe_inv_dir(dir);
+    if !voxel_dda_any_occupied(map, origin, dir, &inv_dir, max_dist) {
+        return None;
+    }
+    raycast_hard_cover_bvh(map, origin, &inv_dir, max_dist)
 }
 
 /// Checks if the open segment `(a, b)` is completely clear of hard cover.

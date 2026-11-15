@@ -8,7 +8,9 @@ from netsnail.arena import (
     NT_ARENA_ALIGN,
     NT_ARENA_BYTES,
     NT_MTU_CEILING_BYTES,
+    NT_POSE_HAS_STAMINA,
     NT_REWIND_RING_BYTES,
+    NT_STANCE_MASK_7BIT,
     NT_TICK_HZ,
     AcousticImpulse,
     ClientInputCmd,
@@ -28,7 +30,7 @@ from netsnail.arena import (
     load_native_library,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __license__ = "CC0-1.0"
 
 __all__ = [
@@ -39,6 +41,8 @@ __all__ = [
     "NT_REWIND_RING_BYTES",
     "NT_TICK_HZ",
     "NT_MTU_CEILING_BYTES",
+    "NT_STANCE_MASK_7BIT",
+    "NT_POSE_HAS_STAMINA",
     "NET_TWIN_ARENA_SIZE_BYTES",
     "NET_TWIN_ARENA_ALIGN_BYTES",
     "NET_TWIN_PARTITION_OFFSETS",

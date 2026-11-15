@@ -1,4 +1,4 @@
-"""Comprehensive Unit, Numerical, Causal & Adversarial Red-Team Pytest Suite for NetSnail v0.1."""
+"""Comprehensive Unit, Numerical, Causal & Adversarial Red-Team Pytest Suite for NetSnail v0.2.0."""
 
 from __future__ import annotations
 
@@ -17,23 +17,30 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from netsnail.arena import (
+import netsnail
+from netsnail.ffi import (
     NET_TWIN_ARENA_ALIGN_BYTES,
     NET_TWIN_ARENA_SIZE_BYTES,
     NET_TWIN_PARTITION_OFFSETS,
     NET_TWIN_PARTITION_SIZES,
     NT_ARENA_ALIGN,
     NT_ARENA_BYTES,
+    NT_BTN_ADS,
     NT_BTN_CROUCH,
     NT_BTN_FIRE,
     NT_BTN_LEAN_L,
+    NT_BTN_LEAN_R,
     NT_BTN_SPRINT,
     NT_HIT_FLAG_HIT,
     NT_HIT_FLAG_OCCLUDER_CUTOFF_REJECTED,
     NT_HIT_FLAG_PENETRATED,
     NT_HIT_FLAG_RICOCHET,
     NT_MTU_CEILING_BYTES,
+    NT_POSE_HAS_STAMINA,
     NT_REWIND_RING_BYTES,
+    NT_SIMD_MODE_AUTO,
+    NT_SIMD_MODE_FORCE_SCALAR,
+    NT_STANCE_MASK_7BIT,
     AcousticImpulse,
     ClientInputCmd,
     ClientJitterGate,
@@ -47,7 +54,12 @@ from netsnail.arena import (
     blake3_256_hex,
     load_native_library,
 )
-from netsnail.fuzzer import run_cross_isa_chaos_fuzzer, verify_mxcsr_ftz_resilience
+from netsnail.fuzzer import (
+    default_chaos_spawns,
+    generate_chaos_command_bytes,
+    run_cross_isa_chaos_fuzzer,
+    verify_mxcsr_ftz_resilience,
+)
 from netsnail.network_sim import (
     run_scenario_a_honest_wan_and_ge_wifi,
     run_scenario_b_clumsy_lag_switch_red_team,
@@ -55,6 +67,7 @@ from netsnail.network_sim import (
     run_scenario_d_anti_dma_and_doorway_pop_in,
 )
 from scripts.verify_bcm2712_arena import verify_bcm2712_arena
+from scripts.verify_cross_isa_lockstep import verify_cross_isa_lockstep
 from scripts.verify_zero_alloc import audit_zero_alloc
 
 
@@ -508,3 +521,435 @@ def test_20_bcm2712_cache_residency_and_zero_alloc_binary_audit(tmp_path: Path) 
     assert bcm["summary"]["l3_capacity_evictions"] == 0
     assert bcm["summary"]["lld_miss_rate_pct"] < 0.100
     assert bcm["summary"]["overall_verification_status"] == "PASS"
+
+
+# ==============================================================================
+# v0.2.0 Adversarial Regression & Property Tests (Bugs 1-5 + WASM32 +simd128)
+# ==============================================================================
+
+def test_v02_delta_lean_vz_stance_multihop_fidelity() -> None:
+    assert netsnail.__version__ == "0.2.0"
+    assert NT_STANCE_MASK_7BIT == 0x007F
+    assert NT_POSE_HAS_STAMINA == (1 << 7)
+
+    srv = NetTwinArenaBridge(auto_init=True)
+    srv_shadow = NetTwinArenaBridge(auto_init=True)
+    cli = NetTwinArenaBridge(auto_init=True)
+    srv.load_default_raid_map()
+    srv_shadow.load_default_raid_map()
+    cli.load_default_raid_map()
+
+    # Observer 0 and visible Enemy 1 inside PVS; Enemy 9 strictly occluded behind West Wing concrete wall
+    for a in (srv, srv_shadow):
+        a.spawn_player(0, -5.0, 0.0, 0.0, 16384)
+        a.spawn_player(1, -5.0, 4.0, 0.0, -16384)
+        a.spawn_player(9, -15.0, 10.0, 0.0, 0)
+        a.set_player_rtt_ticks(0, 8)
+
+    # Deliver initial baseline at tick 0
+    pkt0 = srv.pack_client_datagram(0, 0)
+    pkt0_sh = srv_shadow.pack_client_datagram(0, 0)
+    assert pkt0 == pkt0_sh
+    vis0, _ = cli.unpack_client_datagram(pkt0)
+    assert vis0 == 2
+    last_acked_tick = 0
+
+    saw_short_0x80 = False
+    saw_wide_0xc0 = False
+    saw_multihop_gap = False
+
+    # Step 64 ticks with simulated bursty packet drops (non-trivial ack_mask_u64 baseline hops!)
+    for step in range(64):
+        btns = [
+            NT_BTN_LEAN_L | NT_BTN_CROUCH,
+            NT_BTN_LEAN_R | NT_BTN_ADS,
+            NT_BTN_SPRINT,
+            NT_BTN_LEAN_L,
+            NT_BTN_LEAN_R | NT_BTN_CROUCH,
+        ][step % 5]
+
+        cmd1 = ClientInputCmd()
+        cmd1.cmd_tick = step + 1
+        cmd1.buttons_stance = btns
+        cmd1.move_xy_q15[0] = 18000 if (step % 2 == 0) else -14000
+        cmd1.move_xy_q15[1] = -12000 if (step % 3 == 0) else 12000
+        cmd1.yaw_pitch_q15[0] = int(((-16384 + step * 733) & 0xFFFF) - 32768)
+        cmd1.yaw_pitch_q15[1] = -1200 + (step % 16) * 150
+
+        # Mutate occluded Enemy 9 ONLY in srv_shadow (wild lean, sprint/crouch, yaw, position)
+        cmd9 = ClientInputCmd()
+        cmd9.cmd_tick = step + 1
+        cmd9.buttons_stance = NT_BTN_LEAN_R | NT_BTN_SPRINT
+        cmd9.move_xy_q15[0] = 32767
+        cmd9.move_xy_q15[1] = -20000
+        cmd9.yaw_pitch_q15[0] = int(((step * 3907) & 0xFFFF) - 32768)
+
+        srv.ingest_client_cmd(1, cmd1)
+        srv_shadow.ingest_client_cmd(1, cmd1)
+        srv_shadow.ingest_client_cmd(9, cmd9)
+
+        srv.step_kinematics()
+        srv_shadow.step_kinematics()
+
+        cur_tick = srv.server_tick
+        cur_slot = cur_tick & 63
+        vz_target = 2.25 if (step & 1) == 0 else -1.75
+        for a in (srv, srv_shadow):
+            a.struct.tier_b_poses_plates[cur_slot][1].vel[2] = vz_target
+            if step == 31:
+                # > 0.256 m displacement forces 14-byte wide modular delta record (tag 0xC0 | pid)
+                a.struct.tier_b_poses_plates[cur_slot][1].pos[0] += 0.48
+        srv_shadow.struct.tier_b_poses_plates[cur_slot][9].vel[2] = -3.5
+
+        pkt = srv.pack_client_datagram(0, last_acked_tick)
+        pkt_sh = srv_shadow.pack_client_datagram(0, last_acked_tick)
+        assert pkt == pkt_sh, f"Out-of-cone occluded mutation leaked wire bits at step {step}!"
+        assert 16 < len(pkt) < NT_MTU_CEILING_BYTES
+
+        # Drop steps {2,3,4}, {11,12}, {25,26,27,28}, {44,45} to test multi-tick baseline hops
+        dropped = step in {2, 3, 4, 11, 12, 25, 26, 27, 28, 44, 45}
+        if dropped:
+            continue
+
+        if cur_tick - last_acked_tick > 1:
+            saw_multihop_gap = True
+
+        obs_tag = pkt[16] & 0xC0
+        obs_len = 12 if obs_tag == 0x80 else 14
+        enemy_tag = pkt[16 + obs_len] & 0xC0
+        if enemy_tag == 0x80:
+            saw_short_0x80 = True
+        elif enemy_tag == 0xC0:
+            saw_wide_0xc0 = True
+
+        vis, _ = cli.unpack_client_datagram(pkt)
+        assert vis == 2
+        last_acked_tick = cur_tick
+
+        s_srv = srv.struct.tier_b_poses_plates[cur_slot][1]
+        s_cli = cli.struct.tier_b_poses_plates[cur_slot][1]
+
+        exp_lean_q15 = int(np.int8(s_srv.lean_q15 >> 8)) << 8
+        exp_vz = round(float(s_srv.vel[2]) * 16.0) / 16.0
+        exp_stance_7b = int(s_srv.stance_flags) & NT_STANCE_MASK_7BIT
+
+        assert int(s_cli.lean_q15) == exp_lean_q15, f"Lean delta mismatch at step {step}"
+        assert abs(float(s_cli.vel[2]) - exp_vz) <= (1.0 / 16.0 + 1e-5), f"vz delta mismatch at step {step}"
+        assert (int(s_cli.stance_flags) & NT_STANCE_MASK_7BIT) == exp_stance_7b, f"Stance mismatch at step {step}"
+
+    assert saw_multihop_gap, "Expected multi-tick baseline hop across simulated packet drops"
+    assert saw_short_0x80, "Expected 12 B short modular delta (0x80) records"
+    assert saw_wide_0xc0, "Expected 14 B wide modular delta (0xC0) records"
+
+    # Worst-case 64-player full-state + 8 acoustic impulses <= 1,200 B MTU
+    srv64 = NetTwinArenaBridge(auto_init=True)
+    srv64.load_default_raid_map()
+    for p in range(64):
+        rx = -26.5 + float(p % 8) * 1.5
+        ry = -7.5 + float(p // 8) * 2.0
+        srv64.spawn_player(p, rx, ry, 0.0, 0)
+    for k in range(8):
+        srv64.emit_acoustic_event(k + 1, -20.0, 0.0, 0.0, (210, 180, 140, 100))
+    pkt64 = srv64.pack_client_datagram(0, 0)
+    assert len(pkt64) <= 1008 <= NT_MTU_CEILING_BYTES
+    cli64 = NetTwinArenaBridge(auto_init=True)
+    vis64, ac64 = cli64.unpack_client_datagram(pkt64)
+    assert vis64 == 64 and len(ac64) == 8
+
+
+def test_v02_long_range_and_ricochet_ballistic_projectiles() -> None:
+    # (a) CQB (<= 25 m) hit resolves instantaneously without double-sweeping downrange bystander
+    arena_cqb = NetTwinArenaBridge(auto_init=True)
+    arena_cqb.load_default_raid_map()
+    arena_cqb.spawn_player(0, -18.0, -20.0, 0.0, 16384)
+    arena_cqb.spawn_player(1, -18.0, -10.0, 0.0, -16384)  # 10 m CQB victim
+    arena_cqb.spawn_player(2, -18.0, 18.0, 0.0, -16384)   # 38 m downrange bystander
+
+    cqb_cmd = ClientInputCmd()
+    cqb_cmd.cmd_tick = 0
+    cqb_cmd.buttons_stance = NT_BTN_FIRE
+    cqb_cmd.yaw_pitch_q15[0] = 16384
+    cqb_cmd.yaw_pitch_q15[1] = -300
+    cqb_cmd.weapon_slot_u8 = 1  # 7.62x51 AP
+
+    hit_cqb = arena_cqb.resolve_subtick_fire(0, cqb_cmd)
+    assert hit_cqb.victim_id == 1
+    assert (hit_cqb.outcome_flags & NT_HIT_FLAG_HIT) != 0
+    assert arena_cqb.struct.telemetry_and_header.active_projectile_count == 0
+    for _ in range(10):
+        arena_cqb.step_kinematics()
+    slot_cqb = arena_cqb.server_tick & 63
+    assert arena_cqb.struct.tier_b_poses_plates[slot_cqb][2].health_q8 == 25600
+
+    # (b) Long-range (> 25 m, 45.0 m) unobstructed shot spawns projectile at 25 m handoff and degrades target plates
+    arena_lr = NetTwinArenaBridge(auto_init=True)
+    arena_lr.load_default_raid_map()
+    arena_lr.spawn_player(0, -18.0, -24.0, 0.0, 16384)
+    arena_lr.spawn_player(1, -18.0, 21.0, 0.0, -16384)    # 45.0 m (> 25.0 m)
+
+    orig_hp = int(arena_lr.struct.tier_b_poses_plates[0][1].health_q8)
+    orig_plates = sum(int(x) for x in arena_lr.struct.tier_b_poses_plates[0][1].plate_hp_pools_q8)
+
+    lr_cmd = ClientInputCmd()
+    lr_cmd.cmd_tick = 0
+    lr_cmd.buttons_stance = NT_BTN_FIRE
+    lr_cmd.yaw_pitch_q15[0] = 16384
+    lr_cmd.yaw_pitch_q15[1] = -100
+    lr_cmd.weapon_slot_u8 = 1  # 840 m/s 7.62x51 AP
+
+    hit_lr = arena_lr.resolve_subtick_fire(0, lr_cmd)
+    assert hit_lr.victim_id == 0xFFFFFFFF  # Deferred past 25 m CQB horizon
+    assert arena_lr.struct.telemetry_and_header.active_projectile_count == 1
+
+    for _ in range(8):
+        arena_lr.step_kinematics()
+    slot_lr = arena_lr.server_tick & 63
+    post_st = arena_lr.struct.tier_b_poses_plates[slot_lr][1]
+    post_plates = sum(int(x) for x in post_st.plate_hp_pools_q8)
+    assert int(post_st.health_q8) < orig_hp and post_plates < orig_plates
+    assert arena_lr.struct.telemetry_and_header.active_projectile_count == 0
+
+    # (c) Shallow-angle hard-cover ricochet spawns live projectile capable of striking angled capsule
+    arena_ric = NetTwinArenaBridge(auto_init=True)
+    arena_ric.load_default_raid_map()
+    lib = load_native_library()
+    ric_rad = float(lib.nt_atan2_f32(ctypes.c_float(-0.8), ctypes.c_float(3.2)))
+    ric_yaw = int(round((ric_rad / math.pi) * 32768.0))
+    arena_ric.spawn_player(0, -8.5, -10.7, 0.0, ric_yaw)
+    arena_ric.spawn_player(1, -2.1, -10.7, 0.0, -32768)
+
+    ric_cmd = ClientInputCmd()
+    ric_cmd.cmd_tick = 0
+    ric_cmd.buttons_stance = NT_BTN_FIRE
+    ric_cmd.yaw_pitch_q15[0] = ric_yaw
+    ric_cmd.yaw_pitch_q15[1] = -200
+    ric_cmd.weapon_slot_u8 = 1
+
+    hit_ric = arena_ric.resolve_subtick_fire(0, ric_cmd)
+    assert (hit_ric.outcome_flags & NT_HIT_FLAG_RICOCHET) != 0
+    assert arena_ric.struct.telemetry_and_header.active_projectile_count == 1
+    for _ in range(3):
+        arena_ric.step_kinematics()
+    slot_r = arena_ric.server_tick & 63
+    st_r = arena_ric.struct.tier_b_poses_plates[slot_r][1]
+    plates_r = sum(int(x) for x in st_r.plate_hp_pools_q8)
+    assert int(st_r.health_q8) < 25600 or plates_r < (12800 + 20480 + 17920 + 10240)
+
+
+def test_v02_client_reconcile_pure_idempotent_and_zero_stamina() -> None:
+    srv = NetTwinArenaBridge(auto_init=True)
+    srv_full_stam = NetTwinArenaBridge(auto_init=True)
+    srv.load_default_raid_map()
+    srv_full_stam.load_default_raid_map()
+    srv.spawn_player(0, -18.0, -25.0, 0.0, 16384)
+    srv_full_stam.spawn_player(0, -18.0, -25.0, 0.0, 16384)
+
+    # Exhaust stamina_q15 = 0 on srv while leaving srv_full_stam at 32767
+    srv.struct.tier_b_poses_plates[0][0].stamina_q15 = 0
+    auth_zero = srv.get_player_pose(0)
+    assert (auth_zero.stance_flags & NT_POSE_HAS_STAMINA) != 0
+    assert (auth_zero.stance_flags >> 8) == 0
+
+    cmds_32 = []
+    for i in range(32):
+        c = ClientInputCmd()
+        c.cmd_tick = i + 1
+        c.buttons_stance = NT_BTN_SPRINT
+        c.move_xy_q15[0] = 32767
+        c.move_xy_q15[1] = 0
+        c.yaw_pitch_q15[0] = 16384
+        c.yaw_pitch_q15[1] = 0
+        cmds_32.append(c)
+        srv.ingest_client_cmd(0, c)
+        srv.step_kinematics()
+        srv_full_stam.ingest_client_cmd(0, c)
+        srv_full_stam.step_kinematics()
+
+    srv_final = srv.get_player_pose(0)
+    full_stam_final = srv_full_stam.get_player_pose(0)
+    assert (full_stam_final.y - srv_final.y) > 0.15, "Exhausted player should cover less distance than full-stamina sprinter"
+
+    # Snapshot all 1,507,328 simulation state bytes (Tier-A, Tier-B, BVH, Gates, Slab, Baselines, Scratch)
+    state_end = NET_TWIN_PARTITION_OFFSETS[7]  # 1,507,328 B
+    state_blake3_before = blake3_256_hex(srv.np_bytes[:state_end])
+    srv_hash_before_cli = srv.hash_arena_deterministic()
+
+    cli = NetTwinArenaBridge(auto_init=True)
+    cli.load_default_raid_map()
+    cli.spawn_player(0, -18.0, -25.0, 0.0, 16384)
+    cli_state_blake3_before = blake3_256_hex(cli.np_bytes[:state_end])
+
+    # Run 10x repeated 32-tick reconciliations on cli AND 10x directly on srv
+    cli_preds = [cli.client_reconcile(0, auth_zero, cmds_32) for _ in range(10)]
+    assert srv.hash_arena_deterministic() == srv_hash_before_cli
+    assert blake3_256_hex(cli.np_bytes[:state_end]) == cli_state_blake3_before
+
+    preds = []
+    srv_hashes = []
+    for _ in range(10):
+        preds.append(srv.client_reconcile(0, auth_zero, cmds_32))
+        srv_hashes.append(srv.hash_arena_deterministic())
+
+    assert blake3_256_hex(srv.np_bytes[:state_end]) == state_blake3_before, (
+        "nt_client_reconcile mutated simulation state partitions (Tier-A / Tier-B)!"
+    )
+    assert len(set(srv_hashes)) == 1, "Repeated nt_client_reconcile calls mutated arena digest!"
+
+    ref_bytes = bytes(preds[0])
+    for idx, p in enumerate(preds[1:] + cli_preds, start=1):
+        assert bytes(p) == ref_bytes, f"nt_client_reconcile non-idempotent on repetition {idx}"
+
+    # Verify 0-ULP float bit equality against authoritative sprint-exhausted server stepping
+    pred_floats = struct.pack("<ffffff", preds[0].x, preds[0].y, preds[0].z, preds[0].vx, preds[0].vy, preds[0].vz)
+    srv_floats = struct.pack("<ffffff", srv_final.x, srv_final.y, srv_final.z, srv_final.vx, srv_final.vy, srv_final.vz)
+    assert pred_floats == srv_floats, f"Stamina=0 32-tick reconcile ULP mismatch: {preds[0].y} vs {srv_final.y}"
+
+
+def test_v02_subtick_shortest_arc_yaw_and_lean_interpolation() -> None:
+    arena = NetTwinArenaBridge(auto_init=True)
+    arena.load_default_raid_map()
+    arena.spawn_player(0, -8.0, -5.0, 0.0, 0)
+    arena.spawn_player(1, -2.0, -5.0, 0.0, 32000)
+
+    arena.step_kinematics()  # tick 1
+    arena.step_kinematics()  # tick 2
+
+    # Victim flicks across ±pi yaw seam (+32000 -> -32000, shortest-arc midpoint = ±32768 facing -X)
+    # while leaning Q/E from lean_q15 = 0 -> 8192 (+0.20 m full lean -> +0.10 m at alpha=0.5)
+    arena.struct.tier_b_poses_plates[1][1].yaw_q15 = 32000
+    arena.struct.tier_b_poses_plates[1][1].lean_q15 = 0
+    arena.struct.tier_b_poses_plates[2][1].yaw_q15 = -32000
+    arena.struct.tier_b_poses_plates[2][1].lean_q15 = 8192
+    wide_cyl = (1800 << 16) | 650
+    arena.struct.tier_a_cylinders[1][1].rad_height = wide_cyl
+    arena.struct.tier_a_cylinders[2][1].rad_height = wide_cyl
+
+    lib = load_native_library()
+    # 1. Center-chest shot at alpha=0.5 (fire_subtick_u8=128) must hit FRONT thoracic plate (6 or 7),
+    #    NOT back plate (8 or 9) from naive arithmetic yaw averaging (+32000 + -32000)/2 = 0!
+    aim_rad = float(lib.nt_atan2_f32(ctypes.c_float(0.065), ctypes.c_float(6.0)))
+    aim_yaw = int(round((aim_rad / math.pi) * 32768.0))
+
+    shot_mid = ClientInputCmd()
+    shot_mid.cmd_tick = 1
+    shot_mid.buttons_stance = NT_BTN_FIRE
+    shot_mid.yaw_pitch_q15[0] = aim_yaw
+    shot_mid.yaw_pitch_q15[1] = -500
+    shot_mid.fire_subtick_u8 = 128  # alpha = 0.5
+    shot_mid.weapon_slot_u8 = 1
+
+    hit_mid = arena.resolve_subtick_fire(0, shot_mid)
+    assert hit_mid.victim_id == 1
+    assert (hit_mid.outcome_flags & NT_HIT_FLAG_HIT) != 0
+    assert hit_mid.plate_zone_id in (6, 7), f"Expected front thoracic plate (6/7), got {hit_mid.plate_zone_id}"
+
+    # 2. Grazing shot at y_offset = +0.39 m (outside unleaned r=0.35 m cylinder at tick 1, but inside
+    #    alpha=0.5 leaned torso shifted +0.065 m in +Y -> [ -0.285, +0.415 ]) must MISS at alpha=0 and HIT at alpha=0.5!
+    graze_rad = float(lib.nt_atan2_f32(ctypes.c_float(0.39), ctypes.c_float(6.0)))
+    graze_yaw = int(round((graze_rad / math.pi) * 32768.0))
+
+    shot_t0 = ClientInputCmd()
+    shot_t0.cmd_tick = 1
+    shot_t0.buttons_stance = NT_BTN_FIRE
+    shot_t0.yaw_pitch_q15[0] = graze_yaw
+    shot_t0.yaw_pitch_q15[1] = -500
+    shot_t0.fire_subtick_u8 = 0  # stale tick k (unleaned)
+    shot_t0.weapon_slot_u8 = 1
+    hit_t0 = arena.resolve_subtick_fire(0, shot_t0)
+    assert hit_t0.victim_id == 0xFFFFFFFF, "Unleaned alpha=0 capsule should miss +0.39m lateral ray"
+
+    shot_t05 = ClientInputCmd()
+    shot_t05.cmd_tick = 1
+    shot_t05.buttons_stance = NT_BTN_FIRE
+    shot_t05.yaw_pitch_q15[0] = graze_yaw
+    shot_t05.yaw_pitch_q15[1] = -500
+    shot_t05.fire_subtick_u8 = 128  # alpha=0.5 interpolated lean
+    shot_t05.weapon_slot_u8 = 1
+    hit_t05 = arena.resolve_subtick_fire(0, shot_t05)
+    assert hit_t05.victim_id == 1 and (hit_t05.outcome_flags & NT_HIT_FLAG_HIT) != 0
+
+
+def test_v02_per_arena_simd_override_isolation() -> None:
+    lib = load_native_library()
+    assert int(lib.nt_set_simd_backend_override(None, ctypes.c_uint32(NT_SIMD_MODE_AUTO))) == 0
+
+    arena_a = NetTwinArenaBridge(auto_init=True)
+    arena_b = NetTwinArenaBridge(auto_init=True)
+
+    # Force Scalar (mode=1) on Arena A ONLY; Arena B stays at default Auto-SIMD (mode=0)
+    assert arena_a.set_simd_backend_override(NT_SIMD_MODE_FORCE_SCALAR) == 0
+    assert arena_a.struct.telemetry_and_header.simd_mode_override == NT_SIMD_MODE_FORCE_SCALAR
+    assert arena_b.struct.telemetry_and_header.simd_mode_override == NT_SIMD_MODE_AUTO
+
+    # Also verify standalone Tier-0 dispatch was NOT polluted by Arena A's override
+    a16 = (ctypes.c_float * 16)(*[float(i + 1) * 0.25 for i in range(16)])
+    b16 = (ctypes.c_float * 16)(*[float(16 - i) * -0.5 for i in range(16)])
+    d_auto = float(lib.nt_dot16_pairwise_f32(a16, b16))
+
+    arena_a.load_default_raid_map()
+    arena_b.load_default_raid_map()
+    spawns = default_chaos_spawns(16)
+    for pid, x, y, z, yaw in spawns:
+        arena_a.spawn_player(pid, x, y, z, yaw)
+        arena_b.spawn_player(pid, x, y, z, yaw)
+        arena_a.set_player_rtt_ticks(pid, 10)
+        arena_b.set_player_rtt_ticks(pid, 10)
+
+    cmd_bytes = generate_chaos_command_bytes(128, 16, seed=0xB065_2026_0200)
+    cmds = (ClientInputCmd * (128 * 16)).from_buffer_copy(cmd_bytes)
+
+    for t in range(128):
+        base = t * 16
+        for p in range(16):
+            arena_a.ingest_client_cmd(p, cmds[base + p])
+            arena_b.ingest_client_cmd(p, cmds[base + p])
+        arena_a.step_kinematics()
+        arena_b.step_kinematics()
+        for p in range(16):
+            if cmds[base + p].buttons_stance & NT_BTN_FIRE:
+                arena_a.resolve_subtick_fire(p, cmds[base + p])
+                arena_b.resolve_subtick_fire(p, cmds[base + p])
+        if (t & 7) == 0:
+            pkt_a = arena_a.pack_client_datagram(t % 16, max(0, arena_a.server_tick - 4))
+            pkt_b = arena_b.pack_client_datagram(t % 16, max(0, arena_b.server_tick - 4))
+            assert pkt_a == pkt_b
+
+        assert arena_a.struct.telemetry_and_header.simd_mode_override == NT_SIMD_MODE_FORCE_SCALAR
+        assert arena_b.struct.telemetry_and_header.simd_mode_override == NT_SIMD_MODE_AUTO
+        assert arena_a.hash_arena_deterministic() == arena_b.hash_arena_deterministic()
+
+    assert arena_a.canonical_arena_blake3_hex(mask_simd_override=True) == arena_b.canonical_arena_blake3_hex(
+        mask_simd_override=True
+    )
+    assert struct.pack("<f", float(lib.nt_dot16_pairwise_f32(a16, b16))) == struct.pack("<f", d_auto)
+
+
+def test_v02_wasm32_simd128_binary_and_zero_ulp_lockstep(tmp_path: Path) -> None:
+    za = audit_zero_alloc(require_both=True)
+    wasm_info = za["wasm32"]
+    assert wasm_info["passed"] is True
+    assert wasm_info["total_imports"] == 0
+    assert wasm_info["simd128_enabled"] is True
+    assert wasm_info["simd128_0xfd_opcode_bytes"] >= 100
+
+    out_json = tmp_path / "cross_isa_v02_test.json"
+    res = verify_cross_isa_lockstep(
+        num_ticks=256,
+        num_players=64,
+        output_path=str(out_json),
+        sync_blake3_alias=False,
+    )
+    ps = res["parity_summary"]
+    assert res["total_player_ticks"] == 256 * 64
+    assert ps["mismatched_ticks_simd_vs_scalar"] == 0
+    assert ps["mismatched_ticks_simd_vs_wasm32"] == 0
+    assert ps["digest_x86_simd_blake3_256"] == ps["digest_scalar_blake3_256"] == ps["digest_wasm32_blake3_256"]
+    assert ps["zero_ulp_cross_isa_verified"] is True
+
+    archived_lockstep = _REPO_ROOT / "results" / "cross_isa_lockstep_receipts.json"
+    if archived_lockstep.is_file():
+        doc = json.loads(archived_lockstep.read_text(encoding="utf-8"))
+        assert doc["total_player_ticks"] >= 160_000
+        assert doc["parity_summary"]["zero_ulp_cross_isa_verified"] is True
+        assert doc["wasm32_simd128_audit"]["simd128_0xfd_opcode_bytes"] >= 100
+

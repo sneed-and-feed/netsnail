@@ -32,7 +32,7 @@ jobs:
           python scripts/audit_gfm_math.py README.md docs/ARCHITECTURE.md
 
   rust-native-and-wasm32:
-    name: Rust #![no_std] Arena (x86_64 + WASM32 + Zero-Alloc)
+    name: Rust #![no_std] Arena (x86_64 + AArch64 + WASM32 +simd128 + Zero-Alloc)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -49,22 +49,22 @@ jobs:
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,wasm32-unknown-unknown
           components: clippy
 
-      - name: Run Clippy Across Native & WASM32 Targets
+      - name: Run Clippy & Multi-Target Checks (Native + AArch64 + WASM32 +simd128)
         run: |
           cargo clippy --release --all-targets -- -D warnings
+          cargo check --target aarch64-unknown-linux-gnu
           cargo clippy --target wasm32-unknown-unknown --release --lib -- -D warnings
-          RUSTFLAGS="-C target-feature=+simd128" cargo clippy --target wasm32-unknown-unknown --release --lib -- -D warnings
 
-      - name: Run Cargo Release Tests
+      - name: Run Cargo Release Tests (13 Unit Tests)
         run: |
           cargo test --release --verbose
 
-      - name: Build Native & WASM32 Release Artifacts
+      - name: Build Native & WASM32 (+simd128) Release Artifacts
         run: |
           cargo build --release
           cargo build --target wasm32-unknown-unknown --release
 
-      - name: Audit Zero Dynamic Heap Allocator Imports
+      - name: Audit Zero Dynamic Heap Allocator Imports & WASM32 +simd128 Opcodes
         run: |
           python scripts/verify_zero_alloc.py
 

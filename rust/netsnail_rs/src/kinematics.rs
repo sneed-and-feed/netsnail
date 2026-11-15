@@ -4,13 +4,14 @@
 //! Projectile Stepping, and `< 90 us` 32-Tick Client Prediction Reconciliation.
 
 use crate::arena::{
-    hash_arena_canonical, ClientInputCmd, NetTwinArena, PlayerPoseSnapshot, PlayerTickState,
-    QuantizedEntityState, ServerAcousticEmitter, StaticVoxelBvh, TierACylinder, NT_BTN_ADS,
-    NT_BTN_CROUCH, NT_BTN_LEAN_L, NT_BTN_LEAN_R, NT_BTN_SPRINT, NT_DT_SEC, NT_MAX_ACOUSTIC_EMITTERS,
-    NT_MAX_PLAYERS, NT_MAX_PROJECTILES, NT_STANCE_ACTIVE, NT_STANCE_ADS, NT_STANCE_CROUCH,
-    NT_STANCE_GROUNDED, NT_STANCE_LEAN_L, NT_STANCE_LEAN_R, NT_STANCE_SPRINT,
+    arena_force_scalar, hash_arena_canonical, ClientInputCmd, NetTwinArena, PlayerPoseSnapshot,
+    PlayerTickState, QuantizedEntityState, ServerAcousticEmitter, StaticVoxelBvh, TierACylinder,
+    NT_BTN_ADS, NT_BTN_CROUCH, NT_BTN_LEAN_L, NT_BTN_LEAN_R, NT_BTN_SPRINT, NT_DT_SEC,
+    NT_MAX_ACOUSTIC_EMITTERS, NT_MAX_PLAYERS, NT_POSE_HAS_STAMINA, NT_STANCE_ACTIVE,
+    NT_STANCE_ADS, NT_STANCE_CROUCH, NT_STANCE_GROUNDED, NT_STANCE_LEAN_L, NT_STANCE_LEAN_R,
+    NT_STANCE_MASK_7BIT, NT_STANCE_SPRINT,
 };
-use crate::map_bvh::raycast_hard_cover;
+use crate::ballistics::step_ballistic_projectiles;
 use crate::math::{
     abs_f32, canon_f32, cayley_rotor_so3_eval, cos_q15_deterministic, norm_sq_3d,
     sin_q15_deterministic, sqrt_f32_deterministic,
@@ -58,7 +59,7 @@ pub fn quantize_player_state(s: &PlayerTickState) -> QuantizedEntityState {
         yaw_q8: (s.yaw_q15 >> 8) as i8,
         pitch_q8: (s.pitch_q15 >> 8) as i8,
         lean_q8: (s.lean_q15 >> 8) as i8,
-        stance_u16: s.stance_flags,
+        stance_u16: s.stance_flags & NT_STANCE_MASK_7BIT,
         valid: if (s.stance_flags & NT_STANCE_ACTIVE) != 0 {
             1
         } else {
@@ -67,9 +68,13 @@ pub fn quantize_player_state(s: &PlayerTickState) -> QuantizedEntityState {
     }
 }
 
-/// Converts a `PlayerTickState` to a clean 32-byte `PlayerPoseSnapshot`.
+/// Converts a `PlayerTickState` to a clean 32-byte `PlayerPoseSnapshot`, encoding
+/// `(stamina_q15 >> 7) as u8` in `stance_flags >> 8` with `NT_POSE_HAS_STAMINA` (`bit 7`).
 #[inline]
 pub fn state_to_pose_snapshot(s: &PlayerTickState) -> PlayerPoseSnapshot {
+    let stam_u8: u16 = ((s.stamina_q15.min(32767)) >> 7) & 0x00FF;
+    let packed_stance =
+        (s.stance_flags & NT_STANCE_MASK_7BIT) | NT_POSE_HAS_STAMINA | (stam_u8 << 8);
     PlayerPoseSnapshot {
         x: canon_f32(s.pos[0]),
         y: canon_f32(s.pos[1]),
@@ -80,7 +85,7 @@ pub fn state_to_pose_snapshot(s: &PlayerTickState) -> PlayerPoseSnapshot {
         yaw_q15: s.yaw_q15,
         pitch_q15: s.pitch_q15,
         lean_q15: s.lean_q15,
-        stance_flags: s.stance_flags,
+        stance_flags: packed_stance,
     }
 }
 
@@ -474,7 +479,7 @@ pub fn push_server_acoustic_emitter(
 /// Steps all active players, swept broadphase cylinders, ballistic projectiles, and quantized
 /// baselines by 1 authoritative 128 Hz tick.
 pub fn step_arena_kinematics(arena: &mut NetTwinArena) -> i32 {
-    let force_scalar = arena.telemetry_and_header.simd_mode_override != 0;
+    let force_scalar = arena_force_scalar(arena);
     let prev_tick = arena.telemetry_and_header.server_tick;
     let next_tick = prev_tick.wrapping_add(1);
     let prev_slot = (prev_tick as usize) & 63;
@@ -565,61 +570,8 @@ pub fn step_arena_kinematics(arena: &mut NetTwinArena) -> i32 {
         }
     }
 
-    // Step finite-velocity long-range ballistic projectiles (> 25 m)
-    let mut active_proj = 0u32;
-    for idx in 0..NT_MAX_PROJECTILES {
-        let mut p = arena.projectiles_acoustic_slab.projectiles[idx];
-        if p.active == 0 {
-            continue;
-        }
-        let speed_sq = (p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]) + p.vel[2] * p.vel[2];
-        if speed_sq < 25.0f32 || p.traveled_dist_m > 400.0f32 {
-            p.active = 0;
-            arena.projectiles_acoustic_slab.projectiles[idx] = p;
-            continue;
-        }
-        let speed = sqrt_f32_deterministic(speed_sq, force_scalar);
-        let inv_spd = 1.0f32 / speed;
-        let dir = [p.vel[0] * inv_spd, p.vel[1] * inv_spd, p.vel[2] * inv_spd];
-        let step_len = speed * NT_DT_SEC;
-
-        if let Some((t_hit, normal)) =
-            raycast_hard_cover(&arena.static_voxel_bvh, &p.pos, &dir, step_len)
-        {
-            // Shallow wall obliquity ricochet vs wall embed
-            let cos_inc = abs_f32((dir[0] * normal[0] + dir[1] * normal[1]) + dir[2] * normal[2]);
-            if cos_inc < 0.35f32 && p.ricochet_count == 0 {
-                let vn = (p.vel[0] * normal[0] + p.vel[1] * normal[1]) + p.vel[2] * normal[2];
-                p.pos[0] = canon_f32(p.pos[0] + dir[0] * t_hit + normal[0] * 0.01f32);
-                p.pos[1] = canon_f32(p.pos[1] + dir[1] * t_hit + normal[1] * 0.01f32);
-                p.pos[2] = canon_f32(p.pos[2] + dir[2] * t_hit + normal[2] * 0.01f32);
-                p.vel[0] = canon_f32((p.vel[0] - 2.0f32 * vn * normal[0]) * 0.65f32);
-                p.vel[1] = canon_f32((p.vel[1] - 2.0f32 * vn * normal[1]) * 0.65f32);
-                p.vel[2] = canon_f32((p.vel[2] - 2.0f32 * vn * normal[2]) * 0.65f32);
-                p.ricochet_count += 1;
-                p.traveled_dist_m = canon_f32(p.traveled_dist_m + t_hit);
-                active_proj += 1;
-            } else {
-                p.active = 0;
-            }
-        } else {
-            p.pos[0] = canon_f32(p.pos[0] + p.vel[0] * NT_DT_SEC);
-            p.pos[1] = canon_f32(p.pos[1] + p.vel[1] * NT_DT_SEC);
-            p.pos[2] = canon_f32(p.pos[2] + p.vel[2] * NT_DT_SEC);
-            if p.pos[2] <= 0.0f32 {
-                p.active = 0;
-            } else {
-                // Quadratic air drag + ballistic gravity drop
-                let drag_factor = (1.0f32 - p.drag_coeff * speed * NT_DT_SEC).max(0.5f32);
-                p.vel[0] = canon_f32(p.vel[0] * drag_factor);
-                p.vel[1] = canon_f32(p.vel[1] * drag_factor);
-                p.vel[2] = canon_f32(p.vel[2] * drag_factor - GRAVITY_MPS2 * NT_DT_SEC);
-                p.traveled_dist_m = canon_f32(p.traveled_dist_m + step_len);
-                active_proj += 1;
-            }
-        }
-        arena.projectiles_acoustic_slab.projectiles[idx] = p;
-    }
+    // Step finite-velocity long-range (> 25 m) and ricocheted ballistic projectiles
+    let active_proj = step_ballistic_projectiles(arena, next_slot, force_scalar);
 
     arena.telemetry_and_header.active_projectile_count = active_proj;
     arena.telemetry_and_header.max_cayley_norm_drift = canon_f32(max_drift);
@@ -629,18 +581,21 @@ pub fn step_arena_kinematics(arena: &mut NetTwinArena) -> i32 {
     0
 }
 
-/// Replays `num_cmds` unacknowledged client commands from authoritative `auth_pose` in `< 90 us`.
+/// Pure, idempotent `< 90 us` client prediction reconciliation over `pending_cmds`.
+/// Steps a stack-local `PlayerTickState` copy without mutating `tier_b_poses_plates` or
+/// `tier_a_cylinders`, and preserves exact `0` stamina exhaustion via `NT_POSE_HAS_STAMINA`.
 pub fn client_reconcile_impl(
     arena: &mut NetTwinArena,
     player_id: u32,
     auth_pose: &PlayerPoseSnapshot,
     pending_cmds: &[ClientInputCmd],
 ) -> PlayerPoseSnapshot {
-    let force_scalar = arena.telemetry_and_header.simd_mode_override != 0;
+    let force_scalar = arena_force_scalar(arena);
     let slot = (arena.telemetry_and_header.server_tick as usize) & 63;
     let pid = (player_id as usize) & (NT_MAX_PLAYERS - 1);
 
-    let mut state = arena.tier_b_poses_plates[slot][pid];
+    let ring_state = arena.tier_b_poses_plates[slot][pid];
+    let mut state = ring_state;
     state.pos = [
         canon_f32(auth_pose.x),
         canon_f32(auth_pose.y),
@@ -654,16 +609,20 @@ pub fn client_reconcile_impl(
     state.yaw_q15 = auth_pose.yaw_q15;
     state.pitch_q15 = auth_pose.pitch_q15;
     state.lean_q15 = auth_pose.lean_q15;
-    state.stance_flags = auth_pose.stance_flags | NT_STANCE_ACTIVE;
-    if state.stamina_q15 == 0 {
+    state.stance_flags = (auth_pose.stance_flags & NT_STANCE_MASK_7BIT) | NT_STANCE_ACTIVE;
+
+    if (auth_pose.stance_flags & NT_POSE_HAS_STAMINA) != 0 {
+        let stam_u8 = (auth_pose.stance_flags >> 8) & 0x00FF;
+        state.stamina_q15 = if stam_u8 == 255 { 32767 } else { stam_u8 << 7 };
+    } else if (ring_state.stance_flags & NT_STANCE_ACTIVE) == 0 {
         state.stamina_q15 = 32767;
     }
 
     for cmd in pending_cmds {
-        let _ = step_single_player_kinematics(&arena.static_voxel_bvh, &mut state, cmd, force_scalar);
+        let _ =
+            step_single_player_kinematics(&arena.static_voxel_bvh, &mut state, cmd, force_scalar);
     }
 
-    arena.tier_b_poses_plates[slot][pid] = state;
     arena.telemetry_and_header.last_reconcile_ticks = pending_cmds.len() as u32;
     state_to_pose_snapshot(&state)
 }

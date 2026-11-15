@@ -1,15 +1,23 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.2.0",
   "spoke": "netsnail",
-  "version": "0.1.0",
-  "timestamp_utc": "2026-11-15T14:23:47Z",
-  "evaluation_wall_time_sec": 56.365,
+  "version": "0.2.0",
+  "timestamp_utc": "2026-11-15T15:31:47Z",
+  "evaluation_wall_time_sec": 24.669,
   "arena_invariants": {
     "arena_size_bytes": 1572864,
     "arena_alignment_bytes": 64,
     "rewind_ring_bytes": 327680,
     "mtu_ceiling_bytes": 1200,
     "dynamic_heap_allocations": 0
+  },
+  "formalization_summary": {
+    "file": "formalization/NetSnail.lean",
+    "loc": 421,
+    "theorem_count": 16,
+    "theorem_families": 6,
+    "sorry_count": 0,
+    "custom_axioms": 0
   },
   "head_to_head_comparison": {
     "Naive30Hz_250msRewind_FullScene": {
@@ -28,11 +36,15 @@
       "tick_hz": 128,
       "base_pipeline_latency_ms": 23.438,
       "fiber_30ms_e2e_latency_ms": 38.438,
-      "reconcile_32_tick_mean_us": 19.898,
-      "reconcile_32_tick_p50_us": 17.6,
-      "reconcile_32_tick_p99_us": 36.102,
+      "reconcile_32_tick_mean_us": 17.012,
+      "reconcile_32_tick_p50_us": 16.1,
+      "reconcile_32_tick_p99_us": 39.907,
+      "voxel_dda_subtick_fire_64p_mean_us": 267.925,
+      "voxel_dda_subtick_fire_64p_p50_us": 230.35,
+      "voxel_dda_subtick_fire_64p_p99_us": 535.862,
       "datagram_mean_bytes_16p": 92.61,
       "datagram_max_bytes_16p": 168,
+      "datagram_worst_case_64p_plus_8ac_bytes": 1008,
       "behind_wall_death_rate_pct": 0.0,
       "lag_switch_exploit_rejection_rate_pct": 100.0,
       "lag_switch_quarantine_detection_rate_pct": 100.0,
@@ -47,10 +59,10 @@
       "ticks_simulated": 2048,
       "simulated_duration_sec": 16.0,
       "reconcile_32_tick_us": {
-        "mean_us": 19.898,
-        "median_p50_us": 17.6,
-        "p95_us": 30.3,
-        "p99_us": 36.102,
+        "mean_us": 17.012,
+        "median_p50_us": 16.1,
+        "p95_us": 21.865,
+        "p99_us": 39.907,
         "target_ceiling_us": 90.0,
         "within_90us_budget": true
       },
@@ -62,7 +74,8 @@
         "mtu_ceiling_bytes": 1200,
         "strictly_below_1200b_mtu": true,
         "naive_30hz_full_scene_bytes": 1292,
-        "bandwidth_reduction_ratio": 13.95
+        "bandwidth_reduction_ratio": 13.95,
+        "worst_case_64p_full_plus_8_acoustics_bytes": 1008
       },
       "pipeline_latency_ms": {
         "netsnail_128hz_tick_plus_2tick_lerp_ms": 23.438,
@@ -71,7 +84,14 @@
         "fiber_30ms_e2e_naive_ms": 148.333,
         "ge_wifi_160ms_drop_rate_pct": 3.12
       },
-      "honest_fiber_false_quarantine_ticks": 0
+      "honest_fiber_false_quarantine_ticks": 0,
+      "voxel_dda_subtick_fire_64p_us": {
+        "samples": 512,
+        "mean_us": 267.925,
+        "median_p50_us": 230.35,
+        "p95_us": 409.07,
+        "p99_us": 535.862
+      }
     },
     "scenario_b_clumsy_200ms_lag_switch": {
       "trials": 50,
@@ -114,11 +134,11 @@
     }
   },
   "cross_isa_chaos_summary": {
-    "digest_x86_simd_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
-    "digest_scalar_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
-    "digest_wasm32_blake3_256": "7ddbb0e1b723f34ac0cfd5794c634c6bcee08a7cab1ba20a4c1cb8497c4519be",
-    "rolling_every_tick_arena_blake2b_256": "6868c1b35e10a99a280aebf3f01cf32ea9b08927962c70d1e50a9a512bb141e6",
-    "trajectory_every_tick_u64_blake3_256": "91997c40be6b0af102523f22b82e2ad7eafbc08e8c5e9b4624993add9b32937d",
+    "digest_x86_simd_blake3_256": "7035c05a12f037135c84c7597219e9aaeaf73ab8054f3936787344509239cb2f",
+    "digest_scalar_blake3_256": "7035c05a12f037135c84c7597219e9aaeaf73ab8054f3936787344509239cb2f",
+    "digest_wasm32_blake3_256": "7035c05a12f037135c84c7597219e9aaeaf73ab8054f3936787344509239cb2f",
+    "rolling_every_tick_arena_blake2b_256": "5b6c06b0058ba50972f8c134935b977b594287df3f12e6eb75fa9a69f3009bda",
+    "trajectory_every_tick_u64_blake3_256": "f3dcac2b22af30c7c7a943ed556b91273c8efc88f5b44fd7cc50a19c7217ff5c",
     "mismatched_ticks_simd_vs_scalar": 0,
     "mismatched_ticks_simd_vs_wasm32": 0,
     "first_divergence_tick": null,
@@ -130,13 +150,30 @@
       "ticks_tested": 512,
       "players_tested": 8,
       "player_ticks_tested": 4096,
-      "clean_final_blake3_256": "aeb174a545f0fadc2a29f6b96b0dea969221bd7586701d2730c6537e7e24922f",
-      "hostile_ftz_final_blake3_256": "aeb174a545f0fadc2a29f6b96b0dea969221bd7586701d2730c6537e7e24922f",
+      "clean_final_blake3_256": "b32ec18a762d8b1baf4a570c2f538b94ec55c15697159cfa5dada799433659ea",
+      "hostile_ftz_final_blake3_256": "b32ec18a762d8b1baf4a570c2f538b94ec55c15697159cfa5dada799433659ea",
       "tick_digest_mismatches": 0,
       "zero_ulp_resilient": true
     },
     "zero_ulp_cross_isa_verified": true,
     "status": "PASS"
+  },
+  "wasm32_simd128_audit": {
+    "wasm_size_bytes": 111920,
+    "total_imports": 0,
+    "target_features": [
+      "+bulk-memory",
+      "+bulk-memory-opt",
+      "+call-indirect-overlong",
+      "+multivalue",
+      "+mutable-globals",
+      "+nontrapping-fptoint",
+      "+reference-types",
+      "+sign-ext",
+      "+simd128"
+    ],
+    "simd128_enabled": true,
+    "simd128_0xfd_opcode_bytes": 905
   },
   "bcm2712_cache_summary": {
     "total_arenas_verified": 1,
@@ -151,8 +188,10 @@
   "zero_alloc_binary_audit": {
     "native_passed": true,
     "wasm32_passed": true,
-    "native_size_bytes": 115712,
-    "wasm32_size_bytes": 99689,
+    "native_size_bytes": 125440,
+    "wasm32_size_bytes": 111920,
+    "wasm32_simd128_enabled": true,
+    "wasm32_simd128_0xfd_bytes": 905,
     "heap_allocators_imported": 0
   },
   "all_acceptance_gates_passed": true,

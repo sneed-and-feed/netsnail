@@ -35,6 +35,8 @@ pub const NT_STANCE_SPRINT: u16 = 1 << 3;
 pub const NT_STANCE_LEAN_L: u16 = 1 << 4;
 pub const NT_STANCE_LEAN_R: u16 = 1 << 5;
 pub const NT_STANCE_GROUNDED: u16 = 1 << 6;
+pub const NT_STANCE_MASK_7BIT: u16 = 0x007F;
+pub const NT_POSE_HAS_STAMINA: u16 = 1 << 7;
 
 // HitRecordOut::outcome_flags
 pub const NT_HIT_FLAG_HIT: u8 = 1 << 0;
@@ -460,6 +462,18 @@ pub fn hash_arena_canonical(arena: &NetTwinArena) -> u64 {
     h = (h ^ (h >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     h = (h ^ (h >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     h ^ (h >> 31)
+}
+
+/// Returns `true` when portable scalar execution is forced for `arena`, checking
+/// `arena.telemetry_and_header.simd_mode_override` first and falling back to
+/// `GLOBAL_SIMD_OVERRIDE` only when per-arena override is `0`.
+#[inline(always)]
+pub fn arena_force_scalar(arena: &NetTwinArena) -> bool {
+    if arena.telemetry_and_header.simd_mode_override != 0 {
+        true
+    } else {
+        crate::math::GLOBAL_SIMD_OVERRIDE.load(core::sync::atomic::Ordering::Relaxed) != 0
+    }
 }
 
 /// Initializes an already allocated `NetTwinArena` in-place with zero stack temporaries.

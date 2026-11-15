@@ -19,20 +19,20 @@ from netsnail.network_sim import (
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="netsnail",
-        description="NetSnail v0.1 Deterministic 128 Hz Causal Twin & Anti-DMA Red-Team CLI",
+        description="NetSnail v0.2.0 Deterministic 128 Hz Causal Twin & Anti-DMA Red-Team CLI",
     )
     sub = parser.add_subparsers(dest="cmd")
 
     p_eval = sub.add_parser("evaluate", help="Run Scenario A-D head-to-head red-team evaluation")
     p_eval.add_argument("--ticks", type=int, default=2048, help="Scenario A simulation ticks")
 
-    p_fuzz = sub.add_parser("fuzz", help="Run Cross-ISA x86_64 SIMD vs Scalar vs WASM32 chaos fuzzer")
-    p_fuzz.add_argument("--ticks", type=int, default=10_000, help="Number of ticks")
-    p_fuzz.add_argument("--players", type=int, default=16, help="Number of active players")
+    p_fuzz = sub.add_parser("fuzz", help="Run Cross-ISA x86_64 SIMD vs Scalar vs WASM32 +simd128 chaos fuzzer")
+    p_fuzz.add_argument("--ticks", type=int, default=2_500, help="Number of ticks")
+    p_fuzz.add_argument("--players", type=int, default=64, help="Number of active players")
     p_fuzz.add_argument(
         "--output",
         type=str,
-        default="results/cross_isa_blake3_receipts.json",
+        default="results/cross_isa_lockstep_receipts.json",
         help="Receipt output path",
     )
 

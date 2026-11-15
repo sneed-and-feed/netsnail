@@ -73,13 +73,15 @@ NET_TWIN_PARTITION_SIZES: Tuple[int, ...] = (
     NT_SIZE_TELEMETRY_AND_HEADER,
 )
 
-# ClientInputCmd::buttons_stance bitmask flags
+# ClientInputCmd::buttons_stance & PlayerPoseSnapshot::stance_flags bitmask flags
 NT_BTN_FIRE: int = 1 << 0
 NT_BTN_ADS: int = 1 << 1
 NT_BTN_CROUCH: int = 1 << 2
 NT_BTN_SPRINT: int = 1 << 3
 NT_BTN_LEAN_L: int = 1 << 4
 NT_BTN_LEAN_R: int = 1 << 5
+NT_STANCE_MASK_7BIT: int = 0x007F
+NT_POSE_HAS_STAMINA: int = 1 << 7
 
 # HitRecordOut::outcome_flags bitmask flags
 NT_HIT_FLAG_HIT: int = 1 << 0                       # 0x01

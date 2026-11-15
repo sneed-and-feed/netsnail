@@ -525,7 +525,7 @@ def _run_wasm32_chaos_pass(
             }
 
         return {
-            "backend": "wasm32_unknown_unknown",
+            "backend": "wasm32_simd128",
             "runtime": f"node ({node_exe})",
             "elapsed_sec": meta["elapsed_sec"],
             "num_ticks": num_ticks,
@@ -605,9 +605,9 @@ def verify_mxcsr_ftz_resilience(
 # ==============================================================================
 
 def run_cross_isa_chaos_fuzzer(
-    num_ticks: int = 10_000,
-    num_players: int = 16,
-    seed: int = 0xD41C_5E41_2026_0101,
+    num_ticks: int = 2_500,
+    num_players: int = 64,
+    seed: int = 0xD41C_5E41_2026_0200,
     full_arena_hash_every_tick: bool = True,
     output_path: Optional[str] = None,
 ) -> Dict[str, Any]:
